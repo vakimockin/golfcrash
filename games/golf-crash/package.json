@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
+    "build:stake": "STAKE_BASE_PATH=/golfcrash/v4 vite build",
     "postbuild": "node scripts/prepare-stake-release.js",
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",

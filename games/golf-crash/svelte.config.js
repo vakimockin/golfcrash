@@ -16,7 +16,7 @@ const config = {
       entries: [],
     },
     paths: {
-      base: process.env.STAKE_BASE_PATH ?? "/golfcrash/v4",
+      base: process.env.STAKE_BASE_PATH ?? "",
     },
     appDir: "app",
   },

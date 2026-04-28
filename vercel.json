@@ -1,0 +1,6 @@
+{
+  "installCommand": "pnpm install",
+  "buildCommand": "pnpm --filter golf-crash-game build",
+  "outputDirectory": "games/golf-crash/build",
+  "framework": null
+}
