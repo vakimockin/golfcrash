@@ -438,6 +438,17 @@ const currentVisualWorld = (): VisualWorld => {
 const visualWorldFromMode = (mode: VisualTimeMode): VisualWorld =>
   mode === "evening" ? "golden" : mode === "night" ? "night" : "sunny";
 
+/** World X span where procedural water must not overlap (golfer / tee). */
+const proceduralWaterForbiddenWorldX = (): { minX: number; maxX: number } => {
+  const start = getMapLayout(visualWorldFromMode(game.visualTimeMode)).start;
+  const teeLeft = Math.min(start.characterX, start.ballX);
+  const teeRight = Math.max(start.characterX, start.ballX);
+  return {
+    minX: Math.max(0, teeLeft - 240),
+    maxX: teeRight + 420,
+  };
+};
+
 const PRE_SHOT_FAIL_LABEL: Record<PreShotFail, string> = {
   mole: "A MOLE STOLE THE BALL!",
   clubBreak: "CLUB SNAPPED!",
@@ -833,6 +844,7 @@ const buildProceduralFrontTerrain = (tint = 0xffffff): TerrainLayers =>
     hillSurfaceY,
     readRoadProfileFromTexture,
     setSpriteVisualWidth,
+    waterForbiddenInterval: proceduralWaterForbiddenWorldX(),
   });
 
 const addStaticSprite = (

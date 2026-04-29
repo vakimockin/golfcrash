@@ -155,7 +155,7 @@ export const buildObjectLayerSystem = (
     );
     // golf_car.svg has a tall canvas with visual content above the bottom edge.
     // Keep wheels aligned with route line.
-    cart.anchor.set(0.5, 0.36);
+    cart.anchor.set(0, 0);
     push(cart, 0);
   }
 
