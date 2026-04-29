@@ -15,6 +15,7 @@ import {
 const RESET_DELAY_MS = 2000;
 const PRE_SHOT_FAIL_DELAY_MS = 1800;
 const JACKPOT_RESET_DELAY_MS = 2600;
+const LANDING_SETTLE_MS = 850;
 const RUN_TO_BALL_DELAY_MS = 2000;
 
 let raf: number | null = null;
@@ -197,7 +198,7 @@ export const prerollNextRound = async (): Promise<void> => {
   }
 };
 
-const scheduleReset = (delayMs = RESET_DELAY_MS): void => {
+const scheduleReset = (delayMs = RESET_DELAY_MS, resetToStart = false): void => {
   clearReset();
   resetTimer = setTimeout(() => {
     resetTimer = null;
@@ -210,6 +211,7 @@ const scheduleReset = (delayMs = RESET_DELAY_MS): void => {
     game.crashCause = null;
     game.preShotFail = null;
     game.isJackpot = false;
+    game.resetToStart = resetToStart;
     void prerollNextRound();
   }, delayMs);
 };
@@ -248,12 +250,28 @@ const beginCrashResolution = (cause: CrashCause): void => {
 const finishSafeLanding = (): void => {
   landingTimer = null;
   game.phase = "landed";
-  if (activePlan?.landingZone !== "sand") void prerollNextRound();
+  game.multiplier = 1;
+  game.winningsMicro = 0;
+  game.crashAt = 0;
+  game.crashCause = null;
+  game.preShotFail = null;
+  game.isJackpot = false;
+  activePlan = null;
+  nextEventIdx = 0;
+  primaryImpactFired = false;
+  flightStartMultiplier = 1;
+  void settleWin(0);
+  void prerollNextRound();
+};
+
+const startRunToBall = (): void => {
+  landingTimer = null;
+  game.phase = "runToBall";
+  landingTimer = setTimeout(finishSafeLanding, RUN_TO_BALL_DELAY_MS);
 };
 
 const beginSafeLanding = (): void => {
   stopTicker();
-  game.phase = "runToBall";
   game.winningsMicro = Math.round(game.betMicro * game.multiplier);
   const zone = activePlan?.landingZone;
   game.history = [
@@ -261,7 +279,7 @@ const beginSafeLanding = (): void => {
     zone === "sand" ? "sand" : zone === "cart" ? "fairway" : "fairway",
   ];
   void trackEvent(`landed:${zone ?? "fairway"}`);
-  landingTimer = setTimeout(finishSafeLanding, RUN_TO_BALL_DELAY_MS);
+  landingTimer = setTimeout(startRunToBall, LANDING_SETTLE_MS);
 };
 
 const finishHoleInOne = (): void => {
@@ -281,11 +299,6 @@ const finishHoleInOne = (): void => {
 
 export const startRound = async (): Promise<void> => {
   if (game.phase !== "idle" && game.phase !== "landed") return;
-  const isContinuation = game.phase === "landed" && activeRoundId !== null && !game.isJackpot;
-  if (game.phase === "landed" && activePlan?.landingZone === "sand") {
-    game.lastError = "Ball is stuck in sand. Cash out to finish the round.";
-    return;
-  }
   if (game.betMicro <= 0) return;
 
   try {
@@ -301,25 +314,20 @@ export const startRound = async (): Promise<void> => {
   if (!pendingPlan && isDemoRgs()) {
     return;
   }
-  if (!isContinuation && game.balanceMicro < game.betMicro) {
+  if (game.balanceMicro < game.betMicro) {
     game.lastError = "Insufficient balance";
     return;
   }
 
   try {
-    const spin =
-      isContinuation && pendingPlan
-        ? null
-        : isContinuation
-          ? await placeBet(0, "CONTINUE")
-          : await placeBet(game.betMicro);
+    const spin = await placeBet(game.betMicro);
     const plan = spin?.roundPlan ?? pendingPlan;
     if (!plan) {
       game.lastError = "RGS round.state did not include a Golf Crash round plan";
       if (spin?.roundActive) void endRound(0);
       return;
     }
-    activeRoundId = activeRoundId ?? spin?.roundId ?? plan.roundId;
+    activeRoundId = spin?.roundId ?? plan.roundId;
     activePlan = plan;
     if (spin?.balanceMicro !== undefined) game.balanceMicro = spin.balanceMicro;
     fireRoundPlanReady(activePlan);
@@ -338,7 +346,7 @@ export const startRound = async (): Promise<void> => {
   nextEventIdx = 0;
     primaryImpactFired = false;
 
-    flightStartMultiplier = isContinuation ? game.multiplier : 1;
+    flightStartMultiplier = 1;
     game.multiplier = flightStartMultiplier;
     game.winningsMicro = Math.round(game.betMicro * flightStartMultiplier);
   game.crashCause = null;
@@ -377,7 +385,7 @@ export const startRound = async (): Promise<void> => {
       nextEventIdx += 1;
     }
 
-    const duration = Math.max(5, activePlan.crashAtSec);
+    const duration = Math.min(7, Math.max(5, activePlan.crashAtSec));
     const primaryImpactAt = duration * 0.68;
     const progress = Math.min(1, elapsed / duration);
     const m = flightStartMultiplier + (game.crashAt - flightStartMultiplier) * progress;
@@ -410,7 +418,7 @@ export const startRound = async (): Promise<void> => {
 };
 
 export const cashOut = async (): Promise<void> => {
-  if ((game.phase !== "flight" && game.phase !== "landed") || resolvingCrash) return;
+  if (game.phase !== "flight" || resolvingCrash) return;
   stopTicker();
   clearCrashResolve();
   clearLandingTimer();
@@ -434,7 +442,7 @@ export const cashOut = async (): Promise<void> => {
     if (!proofOk) game.lastError = "Provably fair verification failed";
   }
 
-  scheduleReset();
+  scheduleReset(RESET_DELAY_MS, true);
 };
 
 export const teardownRound = (): void => {

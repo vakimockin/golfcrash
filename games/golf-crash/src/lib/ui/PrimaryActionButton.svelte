@@ -10,8 +10,7 @@
   };
 
   const insufficient = $derived(game.balanceMicro < game.betMicro);
-  const sandLocked = $derived(game.phase === "landed" && game.history.at(-1) === "sand");
-  const isCashOut = $derived(game.phase === "flight" || sandLocked);
+  const isCashOut = $derived(game.phase === "flight");
   const disabled = $derived(
     !isCashOut &&
       (insufficient ||
@@ -34,7 +33,6 @@
       return microToCurrencyString(Math.round(game.betMicro * game.multiplier));
     if (game.phase === "crashed") return `x${game.crashAt.toFixed(2)}`;
     if (game.phase === "cashOut") return microToCurrencyString(game.winningsMicro);
-    if (game.phase === "landed") return `x${game.multiplier.toFixed(2)}`;
     return microToCurrencyString(game.betMicro);
   });
 </script>

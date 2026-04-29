@@ -4,6 +4,7 @@ export type MapFeatureType = "water" | "sand" | "bush" | "tree" | "cart" | "hole
 
 const GROUND_Y = 4000;
 const FINAL_HOLE_X = 6900;
+const WORLD_W = 7600;
 
 export type MapFeature = {
   id: string;
@@ -52,32 +53,44 @@ const feature = (
   flip = false,
 ): MapFeature => ({ id, type, x, y, scale, asset, alpha, flip });
 
-export const hillSurfaceY = (x: number): number =>
-  GROUND_Y -
-  250 -
-  Math.sin((x - 160) / 360) * 52 -
-  Math.sin((x + 80) / 170) * 18;
+// Default surface — flat baseline used until the front-layer silhouette is
+// sampled at runtime. `setSurfaceFn` replaces this with a data-driven curve
+// that traces the visible striped fairway from the front PNGs.
+let surfaceFn: (x: number) => number = (_x: number) => GROUND_Y - 250;
 
-const BASE_START = {
+export const hillSurfaceY = (x: number): number => surfaceFn(x);
+
+export const setSurfaceFn = (fn: (x: number) => number): void => {
+  surfaceFn = fn;
+};
+
+const BASE_START = (): MapLayout["start"] => ({
   ballX: 690,
   ballY: hillSurfaceY(690),
   characterX: 490,
   characterY: hillSurfaceY(490) - 72,
-};
+});
 
-const findValleys = (fromX: number, toX: number, step = 40): Array<{ x: number; y: number }> => {
+// Find local maxima in surface Y (= visual valleys, since +Y is down).
+// Returns sparse, non-clustered candidate points across the play area.
+const findValleys = (
+  fromX: number,
+  toX: number,
+  step = 24,
+  minSpacing = 360,
+): Array<{ x: number; y: number }> => {
   const valleys: Array<{ x: number; y: number }> = [];
-
+  let lastValleyX = -Infinity;
   for (let x = fromX + step; x < toX - step; x += step) {
     const left = hillSurfaceY(x - step);
     const mid = hillSurfaceY(x);
     const right = hillSurfaceY(x + step);
-
-    if (mid > left && mid > right) {
+    if (mid >= left && mid >= right && mid - Math.min(left, right) > 2) {
+      if (x - lastValleyX < minSpacing) continue;
       valleys.push({ x, y: mid });
+      lastValleyX = x;
     }
   }
-
   return valleys;
 };
 
@@ -88,45 +101,39 @@ const findHazardEdges = (
 ): { leftX: number; rightX: number } => {
   let leftX = centerX;
   let rightX = centerX;
-
   while (hillSurfaceY(leftX) > hazardLevelY) {
     leftX -= step;
-    if (centerX - leftX > 1000) break;
+    if (centerX - leftX > 800) break;
   }
-
   while (hillSurfaceY(rightX) > hazardLevelY) {
     rightX += step;
-    if (rightX - centerX > 1000) break;
+    if (rightX - centerX > 800) break;
   }
-
   return { leftX, rightX };
 };
 
 const terrainHazards = (worldId: "sunny" | "golden" | "night"): MapFeature[] => {
-  const startSafeZoneEndX = BASE_START.ballX + 420;
-  const valleys = findValleys(startSafeZoneEndX, FINAL_HOLE_X - 320).filter((point, index, all) => {
-    const previous = all[index - 1];
-    return !previous || point.x - previous.x > 360;
-  });
+  const start = BASE_START();
+  const safeStart = start.ballX + 420;
+  const valleys = findValleys(safeStart, WORLD_W - 600);
   const alpha = worldId === "night" ? 0.62 : worldId === "golden" ? 0.8 : 0.9;
 
-  return valleys.slice(0, 5).map((point, index) => {
+  return valleys.slice(0, 7).map((point, index) => {
     const isWater = index % 2 === 0;
     const asset = isWater
       ? (["waterTrap1", "waterTrap2", "waterTrap4"] as const)[index % 3]
       : (["sandTrap1", "sandTrap2"] as const)[index % 2];
     const hazardLevelY = point.y - (isWater ? 12 : 8);
     const edges = findHazardEdges(point.x, hazardLevelY);
-
     return {
       ...feature(
-      `${isWater ? "water" : "sand"}-${Math.floor(index / 2) + 1}`,
-      isWater ? "water" : "sand",
-      point.x,
-      point.y + (isWater ? 46 : 48),
-      isWater ? 0.36 : 0.44,
-      asset,
-      alpha,
+        `${isWater ? "water" : "sand"}-${Math.floor(index / 2) + 1}`,
+        isWater ? "water" : "sand",
+        point.x,
+        point.y + (isWater ? 46 : 48),
+        isWater ? 0.36 : 0.44,
+        asset,
+        alpha,
       ),
       hazardLevelY,
       leftEdgeX: edges.leftX,
@@ -150,81 +157,59 @@ const baseLandingZones = (hazards: MapFeature[]): LandingZone[] => [
     radius: hazard.type === "water" ? 150 : 130,
     featureId: hazard.id,
   })),
-  { id: "cart-1", type: "cart", x: 1110, y: hillSurfaceY(1110), radius: 120, featureId: "cart" },
   { id: "hole", type: "hole", x: FINAL_HOLE_X, y: hillSurfaceY(FINAL_HOLE_X) + 8, radius: 80, featureId: "hole" },
 ];
 
-const sunnyHazards = terrainHazards("sunny");
-const goldenHazards = terrainHazards("golden");
-const nightHazards = terrainHazards("night");
+const buildLayout = (id: "sunny" | "golden" | "night"): MapLayout => {
+  const hazards = terrainHazards(id);
+  const start = BASE_START();
+  return {
+    id,
+    seed: `${id}-v1`,
+    start,
+    features: [
+      ...hazards,
+      feature("hole", "hole", FINAL_HOLE_X, hillSurfaceY(FINAL_HOLE_X) + 8, 1),
+    ],
+    landingZones: baseLandingZones(hazards),
+  };
+};
 
 export const MAP_LAYOUTS: Record<WorldId, MapLayout> = {
-  sunny: {
-    id: "sunny",
-    seed: "sunny-v1",
-    start: BASE_START,
-    features: [
-      ...sunnyHazards,
-      feature("cart", "cart", 1110, hillSurfaceY(1110), 0.4, "golfCar"),
-      feature("hole", "hole", FINAL_HOLE_X, hillSurfaceY(FINAL_HOLE_X) + 8, 1),
-      feature("tree-1", "tree", 310, 3060, 0.26, "midBush1", 0.42),
-      feature("tree-2", "tree", 870, 2950, 0.22, "midBush2", 0.36),
-      feature("tree-3", "tree", 1640, 3005, 0.24, "midBush3", 0.38),
-      feature("bush-1", "bush", 120, 3930, 0.42, "frontBush1", 0.68),
-      feature("bush-2", "bush", 610, 3915, 0.38, "frontBush2", 0.62),
-    ],
-    landingZones: baseLandingZones(sunnyHazards),
-  },
-  golden: {
-    id: "golden",
-    seed: "golden-v1",
-    start: BASE_START,
-    features: [
-      ...goldenHazards,
-      feature("cart", "cart", 1110, hillSurfaceY(1110), 0.4, "golfCar"),
-      feature("hole", "hole", FINAL_HOLE_X, hillSurfaceY(FINAL_HOLE_X) + 8, 1),
-      feature("tree-1", "tree", 260, 3030, 0.24, "midBush2", 0.36),
-      feature("tree-2", "tree", 980, 2920, 0.23, "midBush1", 0.32),
-      feature("tree-3", "tree", 1780, 3060, 0.22, "midBush3", 0.34),
-      feature("bush-1", "bush", 120, 3930, 0.38, "frontBush1", 0.58),
-    ],
-    landingZones: baseLandingZones(goldenHazards),
-  },
-  night: {
-    id: "night",
-    seed: "night-v1",
-    start: BASE_START,
-    features: [
-      ...nightHazards,
-      feature("cart", "cart", 1110, hillSurfaceY(1110), 0.4, "golfCar", 0.85),
-      feature("hole", "hole", FINAL_HOLE_X, hillSurfaceY(FINAL_HOLE_X) + 8, 1),
-      feature("tree-1", "tree", 380, 3020, 0.22, "midBush1", 0.28),
-      feature("tree-2", "tree", 1220, 2940, 0.2, "midBush3", 0.25),
-      feature("tree-3", "tree", 1860, 3060, 0.22, "midBush2", 0.28),
-    ],
-    landingZones: baseLandingZones(nightHazards),
-  },
+  sunny: buildLayout("sunny"),
+  golden: buildLayout("golden"),
+  night: buildLayout("night"),
   space: {
     id: "space",
     seed: "space-v1",
-    start: BASE_START,
+    start: BASE_START(),
     features: [],
     landingZones: [],
   },
   desert: {
     id: "desert",
     seed: "desert-v1",
-    start: BASE_START,
+    start: BASE_START(),
     features: [],
     landingZones: [],
   },
   jungle: {
     id: "jungle",
     seed: "jungle-v1",
-    start: BASE_START,
+    start: BASE_START(),
     features: [],
     landingZones: [],
   },
+};
+
+// Recompute layouts using the current `surfaceFn`. Call after `setSurfaceFn`.
+export const rebuildLayouts = (): void => {
+  MAP_LAYOUTS.sunny = buildLayout("sunny");
+  MAP_LAYOUTS.golden = buildLayout("golden");
+  MAP_LAYOUTS.night = buildLayout("night");
+  MAP_LAYOUTS.space = { ...MAP_LAYOUTS.space, start: BASE_START() };
+  MAP_LAYOUTS.desert = { ...MAP_LAYOUTS.desert, start: BASE_START() };
+  MAP_LAYOUTS.jungle = { ...MAP_LAYOUTS.jungle, start: BASE_START() };
 };
 
 export const getMapLayout = (worldId: WorldId): MapLayout =>

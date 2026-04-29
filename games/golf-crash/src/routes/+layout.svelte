@@ -1,5 +1,9 @@
 <script lang="ts">
   let { children } = $props();
+
+  if (import.meta.env.DEV && typeof window !== "undefined") {
+    void import("$lib/dev/terminalLogger");
+  }
 </script>
 
 {@render children()}

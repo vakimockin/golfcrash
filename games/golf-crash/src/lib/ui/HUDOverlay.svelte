@@ -1,7 +1,6 @@
 <script lang="ts">
   import { microToCurrencyString } from "@golf-crash/utils-shared";
-  import { game } from "$lib/stores/game.svelte";
-  import { cashOut } from "$lib/game/round";
+  import { game, type VisualTimeMode } from "$lib/stores/game.svelte";
   import BetPanel from "./BetPanel.svelte";
   import PrimaryActionButton from "./PrimaryActionButton.svelte";
   import { t } from "$lib/i18n";
@@ -20,6 +19,12 @@
         return "#e94c4c";
     }
   };
+
+  const TIME_MODES: Array<{ id: VisualTimeMode; label: string }> = [
+    { id: "day", label: "DAY" },
+    { id: "evening", label: "EVENING" },
+    { id: "night", label: "NIGHT" },
+  ];
 </script>
 
 <div class="hud">
@@ -52,12 +57,18 @@
   </div>
 
   <BetPanel />
-  {#if game.phase === "landed"}
-    <button class="secondaryCashOut" onclick={() => void cashOut()}>
-      <span>{t(game.lang, "cashOut")}</span>
-      <strong>{microToCurrencyString(game.winningsMicro)}</strong>
-    </button>
-  {/if}
+  <div class="timeSwitch" role="group" aria-label="Time of day">
+    {#each TIME_MODES as mode}
+      <button
+        type="button"
+        class="timeBtn"
+        class:active={game.visualTimeMode === mode.id}
+        on:click={() => (game.visualTimeMode = mode.id)}
+      >
+        {mode.label}
+      </button>
+    {/each}
+  </div>
   <PrimaryActionButton />
   {#if game.lastError}
     <div class="error">{game.lastError}</div>
@@ -188,21 +199,33 @@
     text-align: center;
   }
 
-  .secondaryCashOut {
-    width: 100%;
-    min-height: 42px;
-    border: none;
+  .timeSwitch {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .timeBtn {
+    appearance: none;
+    border: 1px solid #4a4f55;
     border-radius: 8px;
-    background: linear-gradient(180deg, #ffb627 0%, #d68a0a 100%);
-    color: #2c2f33;
-    font-weight: 800;
+    background: #23262a;
+    color: #d4d7db;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    padding: 6px 0;
     cursor: pointer;
-    box-shadow: 0 3px 0 #8a5a00;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    text-transform: uppercase;
+    transition:
+      background 0.15s ease,
+      color 0.15s ease,
+      border-color 0.15s ease;
+  }
+
+  .timeBtn.active {
+    background: linear-gradient(180deg, #7fc4ff 0%, #4d86d8 100%);
+    color: #fff;
+    border-color: #9ad7ff;
   }
 
   /* Desktop / landscape side rail */
@@ -276,6 +299,12 @@
     .flag {
       width: 14px;
       height: 18px;
+    }
+
+    .timeBtn {
+      font-size: 12px;
+      padding: 9px 0;
+      border-radius: 10px;
     }
   }
 

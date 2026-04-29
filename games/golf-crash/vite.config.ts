@@ -7,6 +7,60 @@ import type { Plugin, ResolvedConfig } from "vite";
 
 const MAX_BUILD_SIZE_BYTES = 50 * 1024 * 1024;
 const red = (value: string): string => `\x1b[31m${value}\x1b[0m`;
+const dim = (value: string): string => `\x1b[2m${value}\x1b[0m`;
+const cyan = (value: string): string => `\x1b[36m${value}\x1b[0m`;
+const yellow = (value: string): string => `\x1b[33m${value}\x1b[0m`;
+const blue = (value: string): string => `\x1b[34m${value}\x1b[0m`;
+
+type BrowserLogPayload = {
+  level: "log" | "info" | "warn" | "error" | "debug";
+  args: unknown[];
+};
+
+const formatBrowserArg = (value: unknown): string => {
+  if (value === null) return "null";
+  if (value === undefined) return "undefined";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean")
+    return String(value);
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "__err" in value &&
+    (value as { __err?: boolean }).__err
+  ) {
+    const err = value as { message?: string; stack?: string };
+    return `${err.message ?? ""}${err.stack ? "\n" + err.stack : ""}`;
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+};
+
+const browserLoggerPlugin = (): Plugin => ({
+  name: "golf-crash-browser-logger",
+  apply: "serve",
+  configureServer(server) {
+    server.ws.on("golf-crash:log", (data: BrowserLogPayload) => {
+      const { level, args } = data ?? { level: "log", args: [] };
+      const tag =
+        level === "error"
+          ? red("ERR ")
+          : level === "warn"
+            ? yellow("WARN")
+            : level === "info"
+              ? blue("INFO")
+              : level === "debug"
+                ? dim("DBG ")
+                : cyan("LOG ");
+      const text = (args ?? []).map(formatBrowserArg).join(" ");
+      // eslint-disable-next-line no-console
+      console.log(`${dim("[browser]")} ${tag} ${text}`);
+    });
+  },
+});
 
 const directorySize = async (path: string): Promise<number> => {
   const entry = await stat(path);
@@ -51,7 +105,7 @@ const buildSizeWarningPlugin = (): Plugin => {
 };
 
 export default defineConfig({
-  plugins: [sveltekit(), buildSizeWarningPlugin()],
+  plugins: [sveltekit(), browserLoggerPlugin(), buildSizeWarningPlugin()],
   build: {
     rollupOptions: {
       output: {

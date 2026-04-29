@@ -135,15 +135,15 @@ const pickPreShotFail = (u: number): PreShotFail | null => {
 };
 
 const pickCrashCause = (u: number): CrashCause => {
-  const options: CrashCause[] = ["cart", "wind", "bird", "helicopter", "plane", "timeout", "fakeBoost"];
+  const options: CrashCause[] = ["cart", "wind", "bird", "helicopter", "plane", "fakeBoost"];
   return options[Math.min(options.length - 1, Math.floor(u * options.length))]!;
 };
 
-const flightDuration = (u: number): number => 5 + u * 3;
+const flightDuration = (u: number): number => 5 + u * 2;
 
 const pickLandingZone = (u: number, cause: CrashCause): LandingZone => {
   if (cause === "cart") return "cart";
-  if (cause === "timeout" || cause === "fakeBoost") return "water";
+  if (cause === "fakeBoost") return "water";
   if (u < 0.55) return "fairway";
   if (u < 0.78) return "sand";
   return "water";

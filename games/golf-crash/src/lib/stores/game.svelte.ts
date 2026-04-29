@@ -7,6 +7,7 @@ import type { CrashCause, PreShotFail } from "../game/math.js";
 import type { AppLang } from "../i18n.js";
 
 export type RoundOutcome = "fairway" | "sand" | "water" | "cashout" | "jackpot";
+export type VisualTimeMode = "day" | "evening" | "night";
 
 export type GamePhase =
   | "idle"
@@ -35,6 +36,8 @@ export type GameState = {
   lang: AppLang;
   demoMode: boolean;
   lastError: string | null;
+  resetToStart: boolean;
+  visualTimeMode: VisualTimeMode;
 };
 
 export const game: GameState = $state({
@@ -54,6 +57,8 @@ export const game: GameState = $state({
   lang: "en",
   demoMode: true,
   lastError: null,
+  resetToStart: false,
+  visualTimeMode: "day",
 });
 
 export const adjustBet = (delta: number): void => {

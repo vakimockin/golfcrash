@@ -126,18 +126,18 @@ def _pick_pre_shot_fail(u: float, table: EventTable) -> PreShotFail | None:
 
 
 def _pick_crash_cause(u: float, crash_at_sec: float) -> CrashCause:
-    options: list[CrashCause] = ["cart", "wind", "bird", "helicopter", "plane", "timeout", "fakeBoost"]
+    options: list[CrashCause] = ["cart", "wind", "bird", "helicopter", "plane", "fakeBoost"]
     return options[min(len(options) - 1, math.floor(u * len(options)))]
 
 
 def _flight_duration(u: float) -> float:
-    return 5.0 + u * 3.0
+    return 5.0 + u * 2.0
 
 
 def _pick_landing_zone(u: float, cause: CrashCause) -> LandingZone:
     if cause == "cart":
         return "cart"
-    if cause == "timeout" or cause == "fakeBoost":
+    if cause == "fakeBoost":
         return "water"
     if u < 0.55:
         return "fairway"
