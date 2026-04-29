@@ -5,8 +5,8 @@ import {
   Graphics,
   Sprite,
   Text,
-  Texture,
-  Ticker,
+  type Texture,
+  type Ticker,
 } from "pixi.js";
 import { assets } from "$app/paths";
 import { game, type VisualTimeMode } from "../stores/game.svelte.js";
@@ -54,6 +54,7 @@ import {
   buildObjectLayerSystem as buildObjectLayerSystemComponent,
   type AmbientMobSpawn,
 } from "./components/ambient-builder.js";
+import { buildCloudBackdrop } from "./components/cloud-backdrop.js";
 import { buildProceduralFrontTerrain as buildProceduralFrontTerrainComponent } from "./components/terrain-builder.js";
 import { updateCamera as updateCameraController } from "./components/camera-controller.js";
 
@@ -232,8 +233,8 @@ const MANIFEST = [
   { alias: "skyDay", src: "/assets/scene/skyes/sky_day.png" },
   { alias: "skyEvening", src: "/assets/scene/skyes/sky_evening.png" },
   { alias: "skyNight", src: "/assets/scene/skyes/sky_night.png" },
-  { alias: "darkSpaceSky", src: "/assets/scene/skyes/dark_space_skyes.png" },
-  { alias: "starsOverlay", src: "/assets/scene/star/stars_overlay.png" },
+  { alias: "darkSpaceSky", src: "/assets/scene/skyes/dark_space_skyes.webp" },
+  { alias: "starsOverlay", src: "/assets/scene/star/stars_overlay.webp" },
   { alias: "sun", src: "/assets/scene/moon_sun/sun.png" },
   { alias: "moon", src: "/assets/scene/moon_sun/moon.png" },
   { alias: "back", src: "/assets/scene/back.png" },
@@ -261,11 +262,24 @@ const MANIFEST = [
   { alias: "frontBush1", src: "/assets/scene/front_bush_1.svg" },
   { alias: "frontBush2", src: "/assets/scene/front_bush_2.svg" },
   { alias: "frontBush3", src: "/assets/scene/front_bush_3.svg" },
-  { alias: "frontBush4", src: "/assets/scene/front_bush_4.png" },
+  { alias: "frontBush4", src: "/assets/scene/front_bush_3.svg" },
   { alias: "waterTrap1", src: "/assets/scene/water_trap_1.svg" },
   { alias: "waterTrap2", src: "/assets/scene/water_trap_2.svg" },
   { alias: "waterTrap3", src: "/assets/scene/water_trap_3.svg" },
   { alias: "waterTrap4", src: "/assets/scene/water_trap_4.svg" },
+  { alias: "water_trap_1", src: "/assets/scene/water_trap_1.svg" },
+  { alias: "water_trap_2", src: "/assets/scene/water_trap_2.svg" },
+  { alias: "water_trap_3", src: "/assets/scene/water_trap_3.svg" },
+  { alias: "water_trap_4", src: "/assets/scene/water_trap_4.svg" },
+  { alias: "sand_trap_1", src: "/assets/scene/sand_trap_1.svg" },
+  { alias: "sand_trap_2", src: "/assets/scene/sand_trap_2.svg" },
+  { alias: "water1", src: "/assets/scene/water_trap_1.svg" },
+  { alias: "water2", src: "/assets/scene/water_trap_2.svg" },
+  { alias: "water3", src: "/assets/scene/water_trap_3.svg" },
+  { alias: "water4", src: "/assets/scene/water_trap_4.svg" },
+  { alias: "water5", src: "/assets/scene/water_trap_2.svg" },
+  { alias: "sand1", src: "/assets/scene/sand_trap_1.svg" },
+  { alias: "sand2", src: "/assets/scene/sand_trap_2.svg" },
   { alias: "sandTrap1", src: "/assets/scene/sand_trap_1.svg" },
   { alias: "sandTrap2", src: "/assets/scene/sand_trap_2.svg" },
   { alias: "midBush1", src: "/assets/scene/mid_bush_1.png" },
@@ -842,48 +856,10 @@ const buildGroundDetails = (depth: "back" | "mid" | "front"): Container => {
   const alpha = depth === "front" ? 0.72 : depth === "mid" ? 0.78 : 0.5;
   const yOffset = depth === "front" ? 0 : depth === "mid" ? -180 : -360;
   const scaleMul = depth === "front" ? 1 : depth === "mid" ? 0.86 : 0.72;
-  const hazardY = GROUND_Y - 520 + yOffset;
 
-  const waterLeft = new Sprite(Assets.get("waterTrap1"));
-  place(
-    waterLeft,
-    460 + (depth === "back" ? 620 : 0),
-    hazardY,
-    0.48 * scaleMul,
-    0.5,
-  );
-  waterLeft.alpha = alpha;
-  layer.addChild(waterLeft);
-
-  const waterRight = new Sprite(Assets.get("waterTrap3"));
-  place(
-    waterRight,
-    2020 + (depth === "back" ? 840 : 0),
-    hazardY - 22,
-    0.5 * scaleMul,
-    0.5,
-  );
-  waterRight.alpha = alpha;
-  layer.addChild(waterRight);
-
-  const sand = new Sprite(Assets.get("sandTrap1"));
-  place(
-    sand,
-    1280 + (depth === "back" ? 980 : 0),
-    hazardY + 8,
-    0.52 * scaleMul,
-    0.5,
-  );
-  sand.alpha = alpha;
-  layer.addChild(sand);
-
-  const hole = new Graphics();
-  hole.ellipse(HOLE_X, holeY(), 24, 9).fill({ color: 0x0b0f14, alpha: 0.95 });
-  hole.ellipse(HOLE_X, holeY() - 2, 16, 5).fill({
-    color: 0x1f2630,
-    alpha: 0.8,
-  });
-  if (depth === "front") layer.addChild(hole);
+  // Water/sand hazards are now rendered procedurally inside the front
+  // terrain (see analyzeTerrainForHazards in components/terrain-builder.ts).
+  // Hole is rendered by renderMapFeature as a holeFlag sprite.
 
   const bushCount = depth === "front" ? 4 : depth === "mid" ? 6 : 4;
   for (let i = 0; i < bushCount; i++) {
@@ -1007,7 +983,12 @@ const buildObjectLayerSystem = (
   container: Container;
   spawns: AmbientMobSpawn[];
 } => {
-  return buildObjectLayerSystemComponent(mobileScale, layers, WORLD_W);
+  return buildObjectLayerSystemComponent(
+    mobileScale,
+    layers,
+    WORLD_W,
+    hillSurfaceY,
+  );
 };
 
 export type BootstrapHooks = {
@@ -1190,7 +1171,8 @@ export const bootstrapGame = (
         ? groundedY
         : Math.min(Math.max(node.y, band.minY), band.maxY),
       vx: direction * speedByLayer,
-      vy: aiType === "plane" ? 0 : isGroundCart ? 0 : 1.2 + layerId * 0.35,
+      // Vertical velocity kept at 0; positive vy used to accumulate downward drift each frame (Y grows down).
+      vy: 0,
       phase: index * 0.9 + layerId * 0.7,
       amplitudeX: aiType === "cloud" ? 0 : isGroundCart ? 0 : 18 + layerId * 4,
       amplitudeY:
@@ -1269,133 +1251,28 @@ export const bootstrapGame = (
     }
   };
 
-  const renderHazardEdgeDecal = (
-    x: number,
-    y: number,
-    type: MapFeature["type"],
-    side: "left" | "right",
-  ): void => {
-    const decal = new Graphics();
-    const direction = side === "left" ? 1 : -1;
-
-    if (type === "water") {
-      decal.ellipse(x, y + 3, 26, 7).fill({ color: 0x2f8d47, alpha: 0.82 });
-      decal
-        .ellipse(x + direction * 16, y + 7, 20, 5)
-        .fill({ color: 0x7fc84d, alpha: 0.72 });
-      decal
-        .rect(x + direction * 5, y - 18, 4, 24)
-        .fill({ color: 0x356f3e, alpha: 0.78 });
-      decal
-        .rect(x + direction * 15, y - 14, 3, 20)
-        .fill({ color: 0x4d8442, alpha: 0.72 });
-    } else {
-      decal.ellipse(x, y + 4, 34, 8).fill({ color: 0xd6c06a, alpha: 0.82 });
-      decal
-        .ellipse(x + direction * 18, y + 7, 24, 6)
-        .fill({ color: 0x8abf4b, alpha: 0.64 });
-      decal
-        .ellipse(x - direction * 10, y + 2, 18, 5)
-        .fill({ color: 0xf0d983, alpha: 0.72 });
-    }
-
-    worldObjectLayer.addChild(decal);
-  };
-
-  const renderMaskedHazard = (feature: MapFeature): void => {
-    if (!feature.asset) return;
-    const scaleMul = getMobileScale(canvasW, canvasH);
-
-    const sprite = new Sprite(Assets.get(feature.asset));
-    const centerX = feature.x;
-    const edgePadding = feature.type === "water" ? 20 : 24;
-    const leftEdgeX =
-      feature.leftEdgeX ?? centerX - (feature.type === "water" ? 130 : 150);
-    const rightEdgeX =
-      feature.rightEdgeX ?? centerX + (feature.type === "water" ? 130 : 150);
-    const startX = leftEdgeX - edgePadding;
-    const endX = rightEdgeX + edgePadding;
-    const width =
-      Math.max(feature.type === "water" ? 180 : 210, endX - startX) * scaleMul;
-    const topY =
-      feature.hazardLevelY ??
-      hillSurfaceY(centerX) + (feature.type === "water" ? 2 : 0);
-    const bottomOffset = feature.type === "water" ? 92 : 88;
-    const step = 12;
-
-    sprite.anchor.set(0.5, 0);
-    sprite.x = (startX + endX) / 2;
-    sprite.y = topY - 8;
-    sprite.width = width;
-    sprite.height = (feature.type === "water" ? 98 : 84) * scaleMul;
-    sprite.alpha = feature.alpha ?? 1;
-
-    const mask = new Graphics();
-    mask.moveTo(startX, hillSurfaceY(startX));
-    const rim = new Graphics();
-    rim.moveTo(startX, topY);
-    for (let x = startX + step; x <= endX; x += step) {
-      mask.lineTo(x, hillSurfaceY(x));
-    }
-    for (let x = endX; x >= startX; x -= step) {
-      const contourY = hillSurfaceY(x);
-      rim.lineTo(x, contourY + 3);
-      mask.lineTo(x, Math.max(topY + 10, contourY + bottomOffset));
-    }
-    rim.lineTo(startX, hillSurfaceY(startX) + 3);
-    rim.lineTo(startX, hillSurfaceY(startX) + 22);
-    rim.lineTo(endX, hillSurfaceY(endX) + 22);
-    rim.closePath();
-    rim.fill({ color: 0x2a3f2a, alpha: 0.45 });
-    mask.closePath();
-    mask.fill(0xffffff);
-    worldObjectLayer.addChild(rim);
-
-    if (feature.type === "water") {
-      const reflection = new Graphics();
-      reflection
-        .ellipse((startX + endX) / 2, topY + 8, Math.max(40, width * 0.24), 9)
-        .fill({ color: 0x8df5ff, alpha: 0.26 });
-      worldObjectLayer.addChild(reflection);
-    }
-
-    sprite.mask = mask;
-    worldObjectLayer.addChild(sprite);
-    worldObjectLayer.addChild(mask);
-  };
-
   const renderMapFeature = (feature: MapFeature): void => {
     const scaleMul = getMobileScale(canvasW, canvasH);
     if (feature.type === "hole") {
-      const holeScale = feature.scale * scaleMul;
-      const hole = new Graphics();
-      hole.ellipse(feature.x, feature.y, 24 * holeScale, 9 * holeScale).fill({
-        color: 0x0b0f14,
-        alpha: feature.alpha ?? 0.95,
-      });
-      hole
-        .ellipse(
-          feature.x,
-          feature.y - 2 * holeScale,
-          16 * holeScale,
-          5 * holeScale,
-        )
-        .fill({
-          color: 0x1f2630,
-          alpha: Math.min(0.8, feature.alpha ?? 0.8),
-        });
-      worldObjectLayer.addChild(hole);
+      // Hole is drawn purely as the flag sprite. Anchor (0.5, 1) puts the
+      // bottom of the flagpole exactly at the hole's terrain coordinate so
+      // the pole appears planted in the ground at (feature.x, feature.y).
       const flag = new Sprite(Assets.get("holeFlag"));
-      place(flag, feature.x + 34, feature.y - 70, 0.42 * scaleMul, 0.5);
+      flag.anchor.set(0.5, 1);
+      flag.scale.set(0.4 * scaleMul);
+      flag.x = feature.x;
+      flag.y = feature.y;
+      flag.alpha = feature.alpha ?? 1;
       worldObjectLayer.addChild(flag);
       return;
     }
 
+    // Water and sand hazards are NOT drawn here — they're rendered
+    // procedurally inside the front terrain by analyzeTerrainForHazards
+    // (see components/terrain-builder.ts), which masks them to the actual
+    // surface curve so they sit embedded in the ground.
+    if (feature.type === "water" || feature.type === "sand") return;
     if (!feature.asset) return;
-    if (feature.type === "water" || feature.type === "sand") {
-      renderMaskedHazard(feature);
-      return;
-    }
 
     const sprite = new Sprite(Assets.get(feature.asset));
     if (feature.type === "cart") {
@@ -1830,8 +1707,7 @@ export const bootstrapGame = (
       if (motion.aiType === "plane") {
         if (motion.baseX > motion.wrapMaxX) motion.baseX = motion.wrapMinX;
         if (motion.baseX < motion.wrapMinX) motion.baseX = motion.wrapMaxX;
-        const band = altitudeBandForLayer(motion.layerId, getReferenceScale());
-        motion.baseY = band.minY + Math.random() * (band.maxY - band.minY);
+        // Keep altitude stable; random baseY each frame caused jitter — baseY stays at spawn/register value.
       } else if (motion.aiType === "patrol") {
         const minX = Math.max(
           motion.wrapMinX,
@@ -1854,7 +1730,6 @@ export const bootstrapGame = (
       if (motion.layerId === 0 || motion.kind === "cart") {
         motion.baseY = hillSurfaceY(motion.baseX);
       } else if (motion.aiType !== "cloud") {
-        motion.baseY += motion.vy * dt;
         motion.baseY = Math.min(
           motion.clampYMax,
           Math.max(motion.clampYMin, motion.baseY),
@@ -2872,6 +2747,7 @@ export const bootstrapGame = (
       backgroundRefs,
     );
     terrainLayer = buildProceduralFrontTerrain(theme.terrainTint);
+    worldLayer.addChild(buildCloudBackdrop(WORLD_W, GROUND_Y));
     worldLayer.addChild(terrainLayer.root);
 
     renderMapLayout(mapLayout);
@@ -3042,6 +2918,11 @@ export const bootstrapGame = (
     if (resizeObserver) resizeObserver.disconnect();
     if (resizeDebounceId !== null) window.clearTimeout(resizeDebounceId);
     app.ticker.remove(animate);
-    app.destroy(true, { children: true, texture: true });
+    // Do not pass texture:true: sprites use Textures from Assets; destroying them here
+    // triggers Pixi warnings — release via Assets.unload after the stage is torn down.
+    app.destroy(true, { children: true, texture: false });
+    void Assets.unload([
+      ...new Set(MANIFEST.map((entry) => entry.alias)),
+    ]).catch(() => undefined);
   };
 };

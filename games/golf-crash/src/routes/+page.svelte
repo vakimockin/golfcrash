@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { bootstrapGame } from "$lib/game/bootstrap";
   import HUDOverlay from "$lib/ui/HUDOverlay.svelte";
   import { getRuntimeConfig } from "$lib/runtime";
   import { game } from "$lib/stores/game.svelte";
@@ -18,18 +17,27 @@
     const world = pickWorldByHour(new Date().getHours());
     game.visualTimeMode =
       world === "golden" ? "evening" : world === "night" ? "night" : "day";
-    return bootstrapGame(canvas, {
-      onProgress: (p) => {
-        progress = Math.max(progress, p);
-      },
-      onReady: () => {
-        progress = 1;
-        ready = true;
-        setTimeout(() => {
-          hideLoader = true;
-        }, 600);
-      },
+    let teardown: (() => void) | undefined;
+    let cancelled = false;
+    void import("$lib/game/bootstrap").then(({ bootstrapGame }) => {
+      if (cancelled) return;
+      teardown = bootstrapGame(canvas, {
+        onProgress: (p) => {
+          progress = Math.max(progress, p);
+        },
+        onReady: () => {
+          progress = 1;
+          ready = true;
+          setTimeout(() => {
+            hideLoader = true;
+          }, 600);
+        },
+      });
     });
+    return () => {
+      cancelled = true;
+      teardown?.();
+    };
   });
 </script>
 

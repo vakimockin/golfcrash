@@ -33,6 +33,7 @@ export const buildObjectLayerSystem = (
   mobileScale: number,
   layers: ObjectLayers,
   worldW: number,
+  routeYAtX?: (x: number) => number,
 ): {
   container: Container;
   spawns: AmbientMobSpawn[];
@@ -138,18 +139,22 @@ export const buildObjectLayerSystem = (
     push(rock, 5);
   }
 
-  for (let i = 0; i < 3; i += 1) {
+  const cartCount = 3;
+  for (let i = 0; i < cartCount; i += 1) {
+    const sector = sectors[(i * 2 + 1) % sectors.length]!;
+    const x = randomInSector(sector, 80);
+    const y = routeYAtX ? routeYAtX(x) : layers[0].centerY;
     const cart = makeWorldSprite(
       layer,
       "golfCar",
-      rand(120, worldW - 120),
-      layers[0].centerY,
+      x,
+      y,
       0.9,
       Math.random() < 0.5,
       2300 * mobileScale,
     );
     // golf_car.svg has a tall canvas with visual content above the bottom edge.
-    // Use a tuned anchor so wheels sit on the gameplay surface.
+    // Keep wheels aligned with route line.
     cart.anchor.set(0.5, 0.36);
     push(cart, 0);
   }
