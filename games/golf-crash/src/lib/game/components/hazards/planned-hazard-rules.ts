@@ -1,6 +1,7 @@
 import type { CrashCause, DecorativeEvent } from "../math/math.js";
 import type { ObjectLayerId, ObjectLayers } from "../core/world-types.js";
 import { PLAY_END_X, BALL_SPEED_X } from "../constants/world-metrics.js";
+import { GOLF_CART_ASSET_ALIAS } from "../sprites/golf-cart-sprite.js";
 
 export const hazardAliasFor = (
   kind: DecorativeEvent["kind"] | CrashCause,
@@ -13,7 +14,7 @@ export const hazardAliasFor = (
     case "helicopter":
       return "helicopter2";
     case "cart":
-      return "golfCar";
+      return GOLF_CART_ASSET_ALIAS;
     case "timeout":
     case "fakeBoost":
       return "ufo";

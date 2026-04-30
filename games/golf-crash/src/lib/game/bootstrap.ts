@@ -89,6 +89,13 @@ import {
   place,
   setSpriteVisualWidth,
 } from "./components/sprites/sprite-placement.js";
+import {
+  GOLF_CART_ALPHA_PLANNED_PRIMARY,
+  GOLF_CART_ALPHA_PLANNED_SECONDARY,
+  GOLF_CART_ALPHA_PLANNED_SECONDARY_STEADY,
+  GOLF_CART_IMPACT_OFFSET_Y_PX,
+  spawnGolfCartSprite,
+} from "./components/sprites/golf-cart-sprite.js";
 import type { AmbientMotion, Effect, Flipbook } from "./components/sprites/ambient-decor-types.js";
 import {
   hazardAliasFor,
@@ -233,6 +240,33 @@ export const bootstrapGame = (
   let unsubLanding: (() => void) | null = null;
   let unsubPreShot: (() => void) | null = null;
   let unsubRoundPlan: (() => void) | null = null;
+
+  /** Tear-down raced ahead of async `init`; bail after awaits — never touch a destroyed renderer. */
+  let bootCancelled = false;
+  let tickerAttached = false;
+  let shutdownComplete = false;
+
+  /** Idempotent Pixi shutdown (handles HMR / unmount while `await` chains are pending). */
+  const disposePixiAndTicker = (): void => {
+    if (shutdownComplete) return;
+    shutdownComplete = true;
+    if (tickerAttached) {
+      try {
+        app.ticker.remove(animate);
+      } catch {
+        /* ticker already detached */
+      }
+      tickerAttached = false;
+    }
+    try {
+      app.destroy(true, { children: true, texture: false });
+    } catch {
+      /* init never finished or already destroyed */
+    }
+    void Assets.unload([
+      ...new Set(GAME_ASSET_MANIFEST.map((entry) => entry.alias)),
+    ]).catch(() => undefined);
+  };
 
   const registerAmbientMotion = (
     node: Container,
@@ -402,18 +436,23 @@ export const bootstrapGame = (
     // (see components/terrain/terrain-builder.ts), which masks them to the actual
     // surface curve so they sit embedded in the ground.
     if (feature.type === "water" || feature.type === "sand") return;
+
+    if (feature.type === "cart") {
+      spawnGolfCartSprite({
+        parent: worldObjectLayer,
+        x: feature.x,
+        surfaceY: hillSurfaceY(feature.x),
+        widthScaleMul: scaleMul,
+        flip: !!feature.flip,
+        alpha: feature.alpha ?? 1,
+      });
+      return;
+    }
+
     if (!feature.asset) return;
 
     const sprite = new Sprite(Assets.get(feature.asset));
-    if (feature.type === "cart") {
-      // Keep cart wheels on route line despite oversized transparent SVG bounds.
-      sprite.anchor.set(0.5, 0.36);
-      sprite.x = feature.x;
-      sprite.y = hillSurfaceY(feature.x);
-      sprite.scale.set(feature.scale * scaleMul);
-    } else {
-      place(sprite, feature.x, feature.y, feature.scale * scaleMul, 0.5);
-    }
+    place(sprite, feature.x, feature.y, feature.scale * scaleMul, 0.5);
     sprite.alpha = feature.alpha ?? 1;
     if (feature.flip) sprite.scale.x = -sprite.scale.x;
     worldObjectLayer.addChild(sprite);
@@ -681,13 +720,41 @@ export const bootstrapGame = (
 
     const alias = hazardAliasFor(kind);
     if (!alias) return null;
-    const sprite = new Sprite(Assets.get(alias));
     const impactOffsetY =
-      kind === "cart" ? 2 : kind === "timeout" || kind === "fakeBoost" ? 0 : 36;
+      kind === "cart"
+        ? GOLF_CART_IMPACT_OFFSET_Y_PX
+        : kind === "timeout" || kind === "fakeBoost"
+          ? 0
+          : 36;
+
+    if (kind === "cart") {
+      const sprite = spawnGolfCartSprite({
+        parent: hazardLayer,
+        x: impact.x,
+        surfaceY: hillSurfaceY(impact.x),
+        widthScaleMul: 1,
+        flip: false,
+        alpha: primary
+          ? GOLF_CART_ALPHA_PLANNED_PRIMARY
+          : GOLF_CART_ALPHA_PLANNED_SECONDARY,
+        impactOffsetY,
+      });
+      const planned = registerPlannedHazard(
+        kind,
+        sprite,
+        primary,
+        impactOffsetY,
+        impact,
+        impactAtSec,
+      );
+      faceSpriteDirection(sprite, planned.vx, 1);
+      return planned;
+    }
+
+    const sprite = new Sprite(Assets.get(alias));
     place(sprite, impact.x, impact.y - impactOffsetY, 1, 0.5);
-    const hazardWidth = kind === "cart" ? 420 : PLANNED_HAZARD_WIDTH;
-    setSpriteVisualWidth(sprite, hazardWidth);
-    sprite.alpha = primary ? 1 : kind === "cart" ? 0.92 : 0.62;
+    setSpriteVisualWidth(sprite, PLANNED_HAZARD_WIDTH);
+    sprite.alpha = primary ? 1 : 0.62;
     hazardLayer.addChild(sprite);
     if (kind === "bird")
       registerWingFlap(sprite, "bird", plannedHazards.length);
@@ -763,7 +830,13 @@ export const bootstrapGame = (
       }
 
       hazard.node.alpha =
-        now < hazard.highlightUntil ? 1 : hazard.primary ? 0.95 : 0.62;
+        now < hazard.highlightUntil
+          ? 1
+          : hazard.primary
+            ? 0.95
+            : hazard.kind === "cart"
+              ? GOLF_CART_ALPHA_PLANNED_SECONDARY_STEADY
+              : 0.62;
       if (hazard.node instanceof Sprite) {
         faceSpriteDirection(hazard.node, hazard.vx);
       }
@@ -1732,6 +1805,7 @@ export const bootstrapGame = (
   };
 
   const animate = (ticker: Ticker): void => {
+    if (shutdownComplete) return;
     const dt = ticker.deltaMS / 1000;
     const now = performance.now();
     updateAmbientDecor(dt, now);
@@ -1748,6 +1822,7 @@ export const bootstrapGame = (
   };
 
   const fit = (): void => {
+    if (shutdownComplete) return;
     const parent = canvas.parentElement;
     if (!parent) return;
     const nextW = parent.clientWidth;
@@ -1927,6 +2002,10 @@ export const bootstrapGame = (
       autoDensity: true,
       resolution: window.devicePixelRatio || 1,
     });
+    if (bootCancelled || shutdownComplete) {
+      disposePixiAndTicker();
+      return;
+    }
 
     hooks.onProgress?.(0.05);
     await Assets.load(
@@ -1936,16 +2015,28 @@ export const bootstrapGame = (
       })),
       (p) => hooks.onProgress?.(0.05 + p * 0.8),
     );
+    if (bootCancelled || shutdownComplete) {
+      disposePixiAndTicker();
+      return;
+    }
     hooks.onProgress?.(0.88);
 
     // Sample the visible front layer once and rebuild map layouts on it.
     try {
       const surfaceFn = await sampleFairwaySurfaceFromAssets("");
+      if (bootCancelled || shutdownComplete) {
+        disposePixiAndTicker();
+        return;
+      }
       setSurfaceFn(surfaceFn);
       rebuildLayouts();
       mapLayout = getMapLayout(visualWorldFromMode(game.visualTimeMode));
     } catch (error) {
       console.warn("[surface] front-layer sampling failed", error);
+    }
+    if (bootCancelled || shutdownComplete) {
+      disposePixiAndTicker();
+      return;
     }
     hooks.onProgress?.(0.93);
 
@@ -1955,6 +2046,10 @@ export const bootstrapGame = (
     canvasH = parent.clientHeight;
 
     buildScene();
+    if (bootCancelled || shutdownComplete || app.stage === null) {
+      disposePixiAndTicker();
+      return;
+    }
     app.stage.addChild(world);
     buildOverlay();
 
@@ -1982,13 +2077,15 @@ export const bootstrapGame = (
     void prerollNextRound();
 
     app.ticker.add(animate);
+    tickerAttached = true;
     hooks.onProgress?.(1);
     hooks.onReady?.();
   };
 
-  void init();
+  void init().catch(() => undefined);
 
   return () => {
+    bootCancelled = true;
     teardownRound();
     if (unsubDecorative) unsubDecorative();
     if (unsubCrash) unsubCrash();
@@ -1997,12 +2094,6 @@ export const bootstrapGame = (
     if (unsubRoundPlan) unsubRoundPlan();
     if (resizeObserver) resizeObserver.disconnect();
     if (resizeDebounceId !== null) window.clearTimeout(resizeDebounceId);
-    app.ticker.remove(animate);
-    // Do not pass texture:true: sprites use Textures from Assets; destroying them here
-    // triggers Pixi warnings — release via Assets.unload after the stage is torn down.
-    app.destroy(true, { children: true, texture: false });
-    void Assets.unload([
-      ...new Set(GAME_ASSET_MANIFEST.map((entry) => entry.alias)),
-    ]).catch(() => undefined);
+    disposePixiAndTicker();
   };
 };

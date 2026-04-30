@@ -1,6 +1,12 @@
 import type { WorldId } from "../../entities/Background.js";
 
-export type MapFeatureType = "water" | "sand" | "bush" | "tree" | "cart" | "hole";
+export type MapFeatureType =
+  | "water"
+  | "sand"
+  | "bush"
+  | "tree"
+  | "cart"
+  | "hole";
 
 const GROUND_Y = 4000;
 const FINAL_HOLE_X = 6900;
@@ -53,9 +59,6 @@ const feature = (
   flip = false,
 ): MapFeature => ({ id, type, x, y, scale, asset, alpha, flip });
 
-// Default surface — flat baseline used until the front-layer silhouette is
-// sampled at runtime. `setSurfaceFn` replaces this with a data-driven curve
-// that traces the visible striped fairway from the front PNGs.
 let surfaceFn: (x: number) => number = (_x: number) => GROUND_Y - 250;
 
 export const hillSurfaceY = (x: number): number => surfaceFn(x);
@@ -65,14 +68,12 @@ export const setSurfaceFn = (fn: (x: number) => number): void => {
 };
 
 const BASE_START = (): MapLayout["start"] => ({
-  ballX: 690,
+  ballX: 600,
   ballY: hillSurfaceY(690),
   characterX: 490,
   characterY: hillSurfaceY(490) - 72,
 });
 
-// Find local maxima in surface Y (= visual valleys, since +Y is down).
-// Returns sparse, non-clustered candidate points across the play area.
 const findValleys = (
   fromX: number,
   toX: number,
@@ -112,7 +113,9 @@ const findHazardEdges = (
   return { leftX, rightX };
 };
 
-const terrainHazards = (worldId: "sunny" | "golden" | "night"): MapFeature[] => {
+const terrainHazards = (
+  worldId: "sunny" | "golden" | "night",
+): MapFeature[] => {
   const start = BASE_START();
   const safeStart = start.ballX + 420;
   const valleys = findValleys(safeStart, WORLD_W - 600);
@@ -143,21 +146,66 @@ const terrainHazards = (worldId: "sunny" | "golden" | "night"): MapFeature[] => 
 };
 
 const baseLandingZones = (hazards: MapFeature[]): LandingZone[] => [
-  { id: "fairway-1", type: "fairway", x: 980, y: hillSurfaceY(980), radius: 150 },
-  { id: "fairway-2", type: "fairway", x: 1560, y: hillSurfaceY(1560), radius: 170 },
-  { id: "fairway-3", type: "fairway", x: 2520, y: hillSurfaceY(2520), radius: 180 },
-  { id: "fairway-4", type: "fairway", x: 4200, y: hillSurfaceY(4200), radius: 180 },
-  { id: "fairway-5", type: "fairway", x: 5200, y: hillSurfaceY(5200), radius: 180 },
-  { id: "fairway-6", type: "fairway", x: 6200, y: hillSurfaceY(6200), radius: 180 },
-  ...hazards.map((hazard): LandingZone => ({
-    id: hazard.id,
-    type: hazard.type === "water" ? "water" : "sand",
-    x: hazard.x,
-    y: hazard.y,
-    radius: hazard.type === "water" ? 150 : 130,
-    featureId: hazard.id,
-  })),
-  { id: "hole", type: "hole", x: FINAL_HOLE_X, y: hillSurfaceY(FINAL_HOLE_X) + 8, radius: 80, featureId: "hole" },
+  {
+    id: "fairway-1",
+    type: "fairway",
+    x: 980,
+    y: hillSurfaceY(980),
+    radius: 150,
+  },
+  {
+    id: "fairway-2",
+    type: "fairway",
+    x: 1560,
+    y: hillSurfaceY(1560),
+    radius: 170,
+  },
+  {
+    id: "fairway-3",
+    type: "fairway",
+    x: 2520,
+    y: hillSurfaceY(2520),
+    radius: 180,
+  },
+  {
+    id: "fairway-4",
+    type: "fairway",
+    x: 4200,
+    y: hillSurfaceY(4200),
+    radius: 180,
+  },
+  {
+    id: "fairway-5",
+    type: "fairway",
+    x: 5200,
+    y: hillSurfaceY(5200),
+    radius: 180,
+  },
+  {
+    id: "fairway-6",
+    type: "fairway",
+    x: 6200,
+    y: hillSurfaceY(6200),
+    radius: 180,
+  },
+  ...hazards.map(
+    (hazard): LandingZone => ({
+      id: hazard.id,
+      type: hazard.type === "water" ? "water" : "sand",
+      x: hazard.x,
+      y: hazard.y,
+      radius: hazard.type === "water" ? 150 : 130,
+      featureId: hazard.id,
+    }),
+  ),
+  {
+    id: "hole",
+    type: "hole",
+    x: FINAL_HOLE_X,
+    y: hillSurfaceY(FINAL_HOLE_X) + 8,
+    radius: 80,
+    featureId: "hole",
+  },
 ];
 
 const buildLayout = (id: "sunny" | "golden" | "night"): MapLayout => {

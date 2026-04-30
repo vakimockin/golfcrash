@@ -1,4 +1,6 @@
 import { Assets, Container, Graphics, Sprite } from "pixi.js";
+import { hillSurfaceY } from "../map/map.js";
+import { spawnGolfCartSprite } from "../sprites/golf-cart-sprite.js";
 import { buildSectors, randomInSector } from "./sectors.js";
 import type { ObjectLayerId, ObjectLayers } from "../core/world-types.js";
 
@@ -52,7 +54,6 @@ export const buildObjectLayerSystem = (
   mobileScale: number,
   layers: ObjectLayers,
   worldW: number,
-  routeYAtX?: (x: number) => number,
 ): {
   container: Container;
   spawns: AmbientMobSpawn[];
@@ -304,19 +305,13 @@ export const buildObjectLayerSystem = (
   const cartXs = distributeX(cartCount, 300);
   for (let i = 0; i < cartCount; i += 1) {
     const x = cartXs[i]!;
-    const y = routeYAtX ? routeYAtX(x) : layers[0].centerY;
-    const cart = makeWorldSprite(
-      layer,
-      "golfCar",
+    const cart = spawnGolfCartSprite({
+      parent: layer,
       x,
-      y,
-      0.9,
-      pickFlip(),
-      2300 * mobileScale,
-    );
-    // golf_car.svg has a tall canvas with the visual content above the
-    // bottom edge — keep wheels aligned with the route line.
-    cart.anchor.set(0, 0);
+      surfaceY: hillSurfaceY(x),
+      widthScaleMul: mobileScale,
+      flip: pickFlip(),
+    });
     push(cart, 0);
   }
 

@@ -72,9 +72,4 @@ export const buildObjectLayerSystem = (
   container: Container;
   spawns: AmbientMobSpawn[];
 } =>
-  buildObjectLayerSystemComponent(
-    mobileScale,
-    layers,
-    WORLD_W,
-    hillSurfaceY,
-  );
+  buildObjectLayerSystemComponent(mobileScale, layers, WORLD_W);
