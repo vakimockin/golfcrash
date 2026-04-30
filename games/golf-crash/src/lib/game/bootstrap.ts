@@ -18,15 +18,13 @@ import {
   onRoundPlanReady,
   prerollNextRound,
   teardownRound,
-} from "./round.js";
+} from "./components/round/round.js";
 import type {
   CrashCause,
   DecorativeEvent,
   PreShotFail,
   RoundPlan,
-} from "./math.js";
-import { pickWorldByHour } from "../config/worlds.js";
-import type { WorldId } from "./entities/Background.js";
+} from "./components/math/math.js";
 import {
   getMapLayout,
   hillSurfaceY,
@@ -34,974 +32,79 @@ import {
   setSurfaceFn,
   type MapFeature,
   type MapLayout,
-} from "./map.js";
+} from "./components/map/map.js";
 import type {
   ObjectLayerId,
   ObjectLayers,
   TerrainLayers,
-} from "./components/world-types.js";
+} from "./components/core/world-types.js";
 import {
   createObjectLayers,
   altitudeBandForLayer as computeAltitudeBandForLayer,
-} from "./components/layer-math.js";
+} from "./components/layers/layer-math.js";
 import {
-  buildLayeredBackground as buildLayeredBackgroundComponent,
   getMobileScale,
   type LayeredBackgroundRefs,
-  type VisualWorldTheme as BackgroundVisualWorldTheme,
-} from "./components/background-builder.js";
+} from "./components/background/background-builder.js";
+import type { AmbientMobSpawn } from "./components/ambient/ambient-builder.js";
+import { buildCloudBackdrop } from "./components/background/cloud-backdrop.js";
+import { updateCamera as updateCameraController } from "./components/camera/camera-controller.js";
 import {
-  buildObjectLayerSystem as buildObjectLayerSystemComponent,
-  type AmbientMobSpawn,
-} from "./components/ambient-builder.js";
-import { buildCloudBackdrop } from "./components/cloud-backdrop.js";
-import { buildProceduralFrontTerrain as buildProceduralFrontTerrainComponent } from "./components/terrain-builder.js";
-import { updateCamera as updateCameraController } from "./components/camera-controller.js";
-
-const WORLD_W = 7600;
-// Extended upward (Y grows downward) so the camera can pan freely into deep
-// space without bumping into a hard top edge. The detached background covers
-// any negative-Y regions visually.
-const WORLD_H = 8000;
-const GROUND_Y = 5000;
-const BACKGROUND_OVERSCAN_X = 2200;
-const SCREENS_TO_SPACE = 6;
-
-const BALL_START_X = 690;
-const BALL_START_Y = GROUND_Y - 90;
-const BALL_APEX_Y = GROUND_Y - 1180;
-const BALL_SPEED_X = 600;
-const CHAR_X = BALL_START_X - 200;
-const CAR_X = BALL_START_X + 420;
-const FLAG_X = WORLD_W - 700;
-const HOLE_X = FLAG_X;
-const PLAY_END_X = HOLE_X;
-// flagY() / holeY() depend on the live surface function which is set after the
-// front-layer silhouette is sampled. Use the helpers to read them lazily.
-const flagY = (): number => hillSurfaceY(FLAG_X) - 130;
-const holeY = (): number => hillSurfaceY(HOLE_X) + 8;
-
-// Front-layer surface sampler.
-//
-// Reads each front_N.png into an off-screen canvas, scans every column for
-// the topmost opaque pixel (the silhouette of the striped fairway band), and
-// builds a piecewise-linear `surfaceY(x)` table covering the full world.
-// Result becomes the gameplay ground line — ball trajectory, hazard valleys
-// and landing zones all snap to the visible art instead of a procedural sin.
-const FRONT_SURFACE_FILES = [
-  "front_1.svg",
-  "front_2.svg",
-  "front_3.svg",
-  "front_4.svg",
-  "front_5.svg",
-  "front_6.svg",
-] as const;
-const FRONT_TILE_HEIGHT = 1500;
-const HORIZON_Y_VAL = GROUND_Y + 110;
-const SURFACE_STEP_PX = 8;
-
-let sampledSurfaceTop: Float32Array | null = null;
-let sampledSurfaceBottom: Float32Array | null = null;
-
-const buildFrontSurface = async (
-  _assetsBase: string,
-): Promise<(x: number) => number> => {
-  const aliases = [
-    "front1",
-    "front2",
-    "front3",
-    "front4",
-    "front5",
-    "front6",
-  ] as const;
-  const seamOverlap = 1;
-  const baseTex = Assets.get(aliases[0]!) as Texture;
-  const uniformScale = FRONT_TILE_HEIGHT / baseTex.height;
-
-  const cells = Math.ceil(WORLD_W / SURFACE_STEP_PX) + 1;
-  const accTop = new Float32Array(cells);
-  const accBottom = new Float32Array(cells);
-  const counts = new Uint16Array(cells);
-
-  let currentX = -1000;
-  let index = 0;
-  while (currentX < WORLD_W + 2000) {
-    const alias = aliases[index % aliases.length]!;
-    const profile = readRoadProfileFromTexture(alias);
-    const actualRenderedWidth = profile.width * uniformScale;
-    const chunkVisualWidth = actualRenderedWidth + 1.5;
-    const spriteX = Math.floor(currentX);
-
-    for (let col = 0; col < profile.width; col += 1) {
-      const localNx = col / Math.max(1, profile.width - 1);
-      const worldX = spriteX + localNx * chunkVisualWidth;
-      const topY = profile.top[col]!;
-      const bottomY = profile.bottom[col]!;
-      const worldTop = HORIZON_Y_VAL - (profile.height - topY) * uniformScale;
-      const worldBottom =
-        HORIZON_Y_VAL - (profile.height - bottomY) * uniformScale;
-      const cell = Math.floor(worldX / SURFACE_STEP_PX);
-      if (cell >= 0 && cell < cells) {
-        accTop[cell] += worldTop;
-        accBottom[cell] += worldBottom;
-        counts[cell]! += 1;
-      }
-    }
-    currentX += actualRenderedWidth - seamOverlap;
-    index += 1;
-  }
-
-  const topTable = new Float32Array(cells);
-  const bottomTable = new Float32Array(cells);
-  for (let i = 0; i < cells; i++) {
-    if (counts[i]! > 0) {
-      topTable[i] = accTop[i]! / counts[i]!;
-      bottomTable[i] = accBottom[i]! / counts[i]!;
-    } else {
-      topTable[i] = Number.NaN;
-      bottomTable[i] = Number.NaN;
-    }
-  }
-  // Fill gaps with nearest-known forward pass then backward pass.
-  let lastValidTop = GROUND_Y - 250;
-  let lastValidBottom = lastValidTop + 120;
-  for (let i = 0; i < cells; i += 1) {
-    if (Number.isNaN(topTable[i]) || Number.isNaN(bottomTable[i])) {
-      topTable[i] = lastValidTop;
-      bottomTable[i] = lastValidBottom;
-    } else {
-      lastValidTop = topTable[i]!;
-      lastValidBottom = bottomTable[i]!;
-    }
-  }
-  for (let i = cells - 1; i >= 0; i -= 1) {
-    if (Number.isNaN(topTable[i])) topTable[i] = lastValidTop;
-    else lastValidTop = topTable[i]!;
-    if (Number.isNaN(bottomTable[i])) bottomTable[i] = lastValidBottom;
-    else lastValidBottom = bottomTable[i]!;
-  }
-
-  // 3-tap moving average smooths micro jitter.
-  const smoothedTop = new Float32Array(cells);
-  const smoothedBottom = new Float32Array(cells);
-  for (let i = 0; i < cells; i += 1) {
-    const aTop = topTable[Math.max(0, i - 1)]!;
-    const bTop = topTable[i]!;
-    const cTop = topTable[Math.min(cells - 1, i + 1)]!;
-    const aBottom = bottomTable[Math.max(0, i - 1)]!;
-    const bBottom = bottomTable[i]!;
-    const cBottom = bottomTable[Math.min(cells - 1, i + 1)]!;
-    smoothedTop[i] = (aTop + bTop + cTop) / 3;
-    smoothedBottom[i] = Math.max(
-      smoothedTop[i]! + 40,
-      (aBottom + bBottom + cBottom) / 3,
-    );
-  }
-  sampledSurfaceTop = smoothedTop;
-  sampledSurfaceBottom = smoothedBottom;
-
-  return (x: number): number => {
-    const idxF = x / SURFACE_STEP_PX;
-    const i0 = Math.max(0, Math.min(cells - 1, Math.floor(idxF)));
-    const i1 = Math.max(0, Math.min(cells - 1, Math.ceil(idxF)));
-    const t = idxF - Math.floor(idxF);
-    return smoothedTop[i0]! * (1 - t) + smoothedTop[i1]! * t;
-  };
-};
-const NEAR_HOLE_DISTANCE = 320;
+  BALL_APEX_Y,
+  BALL_START_X,
+  BALL_START_Y,
+  CAMERA_LERP,
+  CHAR_X,
+  FLAG_X,
+  FLIGHT_CAMERA_FOCUS_X,
+  FLIGHT_CAMERA_FOCUS_Y,
+  GROUND_Y,
+  HOLE_X,
+  IDLE_CAMERA_FOCUS_X,
+  NEAR_HOLE_DISTANCE,
+  PLANNED_HAZARD_WIDTH,
+  PLAY_END_X,
+  SCREENS_TO_SPACE,
+  WORLD_H,
+  WORLD_W,
+} from "./components/constants/world-metrics.js";
+import { GAME_ASSET_MANIFEST } from "./components/assets/asset-manifest.js";
+import { CRASH_LAYER } from "./components/labels/crash-layers.js";
+import {
+  CRASH_CAUSE_LABEL,
+  PRE_SHOT_FAIL_LABEL,
+} from "./components/labels/crash-labels.js";
+import {
+  WORLD_THEMES,
+  visualWorldFromMode,
+  type VisualWorldTheme,
+} from "./components/themes/visual-world-theme.js";
+import { sampleFairwaySurfaceFromAssets } from "./components/terrain/fairway-surface-sampler.js";
+import {
+  directionalSpriteKind,
+  effectiveAmbientPatrolVx,
+  faceSpriteDirection,
+  isSpriteAlias,
+  PATROL_X_WOBBLE_MS,
+  place,
+  setSpriteVisualWidth,
+} from "./components/sprites/sprite-placement.js";
+import type { AmbientMotion, Effect, Flipbook } from "./components/sprites/ambient-decor-types.js";
+import {
+  hazardAliasFor,
+  hazardVelocity,
+  layerForKind,
+  plannedHazardImpactPosition as impactPositionForPlan,
+} from "./components/hazards/planned-hazard-rules.js";
+import {
+  buildLayeredBackground,
+  buildObjectLayerSystem,
+  buildProceduralFrontTerrain,
+} from "./components/terrain/pixi-terrain-wrappers.js";
 
 // Where the ball appears on screen (0..1, fraction of canvas).
-// Tweak these to move the ball horizontally / vertically in the frame.
-const FLIGHT_CAMERA_FOCUS_X = 0.36;
-const FLIGHT_CAMERA_FOCUS_Y = 0.55;
-const IDLE_CAMERA_FOCUS_X = 0.4;
-const CAMERA_LERP = 0.08;
-
-const CRASH_LAYER: Record<CrashCause, ObjectLayerId> = {
-  cart: 0,
-  wind: 1,
-  bird: 1,
-  helicopter: 2,
-  plane: 3,
-  timeout: 5,
-  fakeBoost: 5,
-};
-
-const PLANNED_HAZARD_WIDTH = 150;
-
-const MANIFEST = [
-  { alias: "skyDay", src: "/assets/scene/skyes/sky_day.png" },
-  { alias: "skyEvening", src: "/assets/scene/skyes/sky_evening.png" },
-  { alias: "skyNight", src: "/assets/scene/skyes/sky_night.png" },
-  { alias: "darkSpaceSky", src: "/assets/scene/skyes/dark_space_skyes.webp" },
-  { alias: "starsOverlay", src: "/assets/scene/star/stars_overlay.webp" },
-  { alias: "sun", src: "/assets/scene/moon_sun/sun.png" },
-  { alias: "moon", src: "/assets/scene/moon_sun/moon.png" },
-  { alias: "back", src: "/assets/scene/back.png" },
-  { alias: "middle", src: "/assets/scene/middle.png" },
-  { alias: "front", src: "/assets/scene/front.png" },
-  { alias: "back1", src: "/assets/scene/back_1.svg" },
-  { alias: "back2", src: "/assets/scene/back_2.svg" },
-  { alias: "back3", src: "/assets/scene/back_3.svg" },
-  { alias: "back4", src: "/assets/scene/back_4.svg" },
-  { alias: "back5", src: "/assets/scene/back_5.svg" },
-  { alias: "back6", src: "/assets/scene/back_6.svg" },
-  { alias: "middle1", src: "/assets/scene/middle_1.svg" },
-  { alias: "middle2", src: "/assets/scene/middle_2.svg" },
-  { alias: "middle3", src: "/assets/scene/middle_3.svg" },
-  { alias: "middle4", src: "/assets/scene/middle_4.svg" },
-  { alias: "middle5", src: "/assets/scene/middle_5.svg" },
-  { alias: "middle6", src: "/assets/scene/middle_6.svg" },
-  { alias: "front1", src: "/assets/scene/front_1.svg" },
-  { alias: "front2", src: "/assets/scene/front_2.svg" },
-  { alias: "front3", src: "/assets/scene/front_3.svg" },
-  { alias: "front4", src: "/assets/scene/front_4.svg" },
-  { alias: "front5", src: "/assets/scene/front_5.svg" },
-  { alias: "front6", src: "/assets/scene/front_6.svg" },
-  { alias: "frontHole", src: "/assets/scene/front_hole_1.svg" },
-  { alias: "frontBush1", src: "/assets/scene/front_bush_1.svg" },
-  { alias: "frontBush2", src: "/assets/scene/front_bush_2.svg" },
-  { alias: "frontBush3", src: "/assets/scene/front_bush_3.svg" },
-  { alias: "frontBush4", src: "/assets/scene/front_bush_3.svg" },
-  { alias: "waterTrap1", src: "/assets/scene/water_trap_1.svg" },
-  { alias: "waterTrap2", src: "/assets/scene/water_trap_2.svg" },
-  { alias: "waterTrap3", src: "/assets/scene/water_trap_3.svg" },
-  { alias: "waterTrap4", src: "/assets/scene/water_trap_4.svg" },
-  { alias: "water_trap_1", src: "/assets/scene/water_trap_1.svg" },
-  { alias: "water_trap_2", src: "/assets/scene/water_trap_2.svg" },
-  { alias: "water_trap_3", src: "/assets/scene/water_trap_3.svg" },
-  { alias: "water_trap_4", src: "/assets/scene/water_trap_4.svg" },
-  { alias: "sand_trap_1", src: "/assets/scene/sand_trap_1.svg" },
-  { alias: "sand_trap_2", src: "/assets/scene/sand_trap_2.svg" },
-  { alias: "water1", src: "/assets/scene/water_trap_1.svg" },
-  { alias: "water2", src: "/assets/scene/water_trap_2.svg" },
-  { alias: "water3", src: "/assets/scene/water_trap_3.svg" },
-  { alias: "water4", src: "/assets/scene/water_trap_4.svg" },
-  { alias: "water5", src: "/assets/scene/water_trap_2.svg" },
-  { alias: "sand1", src: "/assets/scene/sand_trap_1.svg" },
-  { alias: "sand2", src: "/assets/scene/sand_trap_2.svg" },
-  { alias: "sandTrap1", src: "/assets/scene/sand_trap_1.svg" },
-  { alias: "sandTrap2", src: "/assets/scene/sand_trap_2.svg" },
-  { alias: "midBush1", src: "/assets/scene/mid_bush_1.png" },
-  { alias: "midBush2", src: "/assets/scene/mid_bush_2.png" },
-  { alias: "midBush3", src: "/assets/scene/mid_bush_3.png" },
-  { alias: "midBush4", src: "/assets/scene/mid_bush_4.png" },
-  { alias: "midBush5", src: "/assets/scene/mid_bush_5.png" },
-  { alias: "golfCar", src: "/assets/scene/golf_car.svg" },
-  { alias: "sheikh", src: "/assets/scene/sheikh.png" },
-  { alias: "ball", src: "/assets/scene/simple_ball.png" },
-  { alias: "fireBall", src: "/assets/scene/blue_fire_ball.png" },
-  { alias: "holeFlag", src: "/assets/scene/hole_flag.png" },
-  { alias: "bird", src: "/assets/scene/bird.png" },
-  { alias: "bird2", src: "/assets/scene/bird2.png" },
-  { alias: "duck", src: "/assets/scene/duck.png" },
-  { alias: "duck2", src: "/assets/scene/duck2.png" },
-  { alias: "plane", src: "/assets/scene/plane_skins.png" },
-  { alias: "plane2", src: "/assets/scene/plane_skins2.png" },
-  { alias: "plane3", src: "/assets/scene/plane_skins3.png" },
-  { alias: "helicopter", src: "/assets/scene/helicopter_skins.png" },
-  { alias: "helicopter2", src: "/assets/scene/helicopter_skins2.png" },
-  { alias: "ufo", src: "/assets/scene/UFO.png" },
-  { alias: "satellite", src: "/assets/scene/satellite.png" },
-  { alias: "meteors", src: "/assets/scene/meteors.svg" },
-  { alias: "asteroid1", src: "/assets/scene/asteroid_1.svg" },
-  { alias: "asteroid2", src: "/assets/scene/asteroid_2.svg" },
-  { alias: "asteroid3", src: "/assets/scene/asteroid_3.svg" },
-  { alias: "asteroid4", src: "/assets/scene/asteroid_4.svg" },
-  { alias: "asteroid5", src: "/assets/scene/asteroid_5.svg" },
-  { alias: "asteroid6", src: "/assets/scene/asteroid_6.png" },
-  { alias: "asteroid7", src: "/assets/scene/asteroid_7.png" },
-  { alias: "asteroid8", src: "/assets/scene/asteroid_8.png" },
-  { alias: "asteroid9", src: "/assets/scene/asteroid_9.png" },
-  { alias: "cloud1", src: "/assets/scene/cloud_1.png" },
-  { alias: "cloud2", src: "/assets/scene/cloud_2.png" },
-  { alias: "cloud3", src: "/assets/scene/cloud_3.png" },
-  { alias: "cloud4", src: "/assets/scene/cloud_4.png" },
-  { alias: "cloud5", src: "/assets/scene/cloud_5.png" },
-  { alias: "cloud6", src: "/assets/scene/cloud_6.png" },
-  { alias: "cloud7", src: "/assets/scene/cloud_7.png" },
-  { alias: "cloud8", src: "/assets/scene/cloud_8.png" },
-  { alias: "cloud9", src: "/assets/scene/cloud_9.png" },
-  { alias: "cloud10", src: "/assets/scene/cloud_10.png" },
-];
-
-type Mover = {
-  sprite: Sprite;
-  vx: number;
-  vy: number;
-  wrapMinX: number;
-  wrapMaxX: number;
-};
-
-type AmbientMotion = {
-  node: Container;
-  layerId: ObjectLayerId;
-  kind: "plane" | "helicopter" | "bird" | "duck" | "cart" | null;
-  aiType: "plane" | "patrol" | "cloud";
-  originX: number;
-  baseX: number;
-  baseY: number;
-  vx: number;
-  vy: number;
-  phase: number;
-  amplitudeX: number;
-  amplitudeY: number;
-  patrolRadius: number;
-  wrapMinX: number;
-  wrapMaxX: number;
-  facing: 1 | -1;
-  clampYMin: number;
-  clampYMax: number;
-};
-
-type Flipbook = {
-  sprite: Sprite;
-  frames: Texture[];
-  frameMs: number;
-  phase: number;
-  visualWidth: number;
-};
-
-type Effect = {
-  node: Container | Sprite;
-  vx: number;
-  vy: number;
-  expiresAt: number;
-};
-
-type ExtractedRoadProfile = {
-  width: number;
-  height: number;
-  top: number[];
-  bottom: number[];
-};
-
-type VisualWorld = Extract<WorldId, "sunny" | "golden" | "night">;
-
-type VisualWorldTheme = {
-  id: VisualWorld;
-  skyAlias: string;
-  celestialAlias: "sun" | "moon";
-  celestialX: number;
-  celestialY: number;
-  celestialScale: number;
-  celestialAlpha: number;
-  starsAlpha: number;
-  flyerAlpha: number;
-  terrainTint: number;
-};
-
-const WORLD_THEMES: Record<VisualWorld, VisualWorldTheme> = {
-  sunny: {
-    id: "sunny",
-    skyAlias: "skyDay",
-    celestialAlias: "sun",
-    celestialX: 3820,
-    celestialY: 1180,
-    celestialScale: 0.16,
-    celestialAlpha: 0.7,
-    starsAlpha: 0,
-    flyerAlpha: 0.82,
-    terrainTint: 0xffffff,
-  },
-  golden: {
-    id: "golden",
-    skyAlias: "skyEvening",
-    celestialAlias: "sun",
-    celestialX: 2550,
-    celestialY: 3180,
-    celestialScale: 0.18,
-    celestialAlpha: 0.82,
-    starsAlpha: 0.32,
-    flyerAlpha: 0.75,
-    terrainTint: 0xfff0c8,
-  },
-  night: {
-    id: "night",
-    skyAlias: "skyNight",
-    celestialAlias: "moon",
-    celestialX: 3680,
-    celestialY: 920,
-    celestialScale: 0.2,
-    celestialAlpha: 0.78,
-    starsAlpha: 0.58,
-    flyerAlpha: 0.58,
-    terrainTint: 0x8fa8d8,
-  },
-};
-
-const currentVisualWorld = (): VisualWorld => {
-  const id = pickWorldByHour(new Date().getHours());
-  return id === "golden" || id === "night" ? id : "sunny";
-};
-
-const visualWorldFromMode = (mode: VisualTimeMode): VisualWorld =>
-  mode === "evening" ? "golden" : mode === "night" ? "night" : "sunny";
-
-/** World X span where procedural water must not overlap (golfer / tee). */
-const proceduralWaterForbiddenWorldX = (): { minX: number; maxX: number } => {
-  const start = getMapLayout(visualWorldFromMode(game.visualTimeMode)).start;
-  const teeLeft = Math.min(start.characterX, start.ballX);
-  const teeRight = Math.max(start.characterX, start.ballX);
-  return {
-    minX: Math.max(0, teeLeft - 240),
-    maxX: teeRight + 420,
-  };
-};
-
-const PRE_SHOT_FAIL_LABEL: Record<PreShotFail, string> = {
-  mole: "A MOLE STOLE THE BALL!",
-  clubBreak: "CLUB SNAPPED!",
-  selfHit: "OUCH! SELF HIT!",
-};
-
-const CRASH_CAUSE_LABEL: Record<CrashCause, string> = {
-  bird: "BIRD STRIKE!",
-  wind: "GUST OF WIND!",
-  helicopter: "HELICOPTER!",
-  plane: "PLANE!",
-  cart: "RUNAWAY CART!",
-  timeout: "OUT OF GAS!",
-  fakeBoost: "FAKE BOOST!",
-};
-
-const place = (
-  sprite: Sprite,
-  x: number,
-  y: number,
-  scale: number,
-  anchor = 0.5,
-): void => {
-  sprite.anchor.set(anchor);
-  sprite.scale.set(scale);
-  sprite.x = x;
-  sprite.y = y;
-};
-
-const setSpriteVisualWidth = (
-  sprite: Sprite,
-  width: number,
-  flip = false,
-): void => {
-  const ratio = width / Math.max(1, sprite.texture.width);
-  sprite.scale.set(ratio);
-  if (flip) sprite.scale.x = -Math.abs(sprite.scale.x);
-};
-
-const roadProfileCache = new Map<string, ExtractedRoadProfile>();
-
-const smoothProfile = (values: number[], fallback: number): number[] => {
-  const out = [...values];
-  let last = fallback;
-  for (let i = 0; i < out.length; i += 1) {
-    if (Number.isFinite(out[i]!) && out[i]! >= 0) last = out[i]!;
-    else out[i] = last;
-  }
-  last = fallback;
-  for (let i = out.length - 1; i >= 0; i -= 1) {
-    if (Number.isFinite(out[i]!) && out[i]! >= 0) last = out[i]!;
-    else out[i] = last;
-  }
-  return out;
-};
-
-const readRoadProfileFromTexture = (alias: string): ExtractedRoadProfile => {
-  const cached = roadProfileCache.get(alias);
-  if (cached) return cached;
-
-  const texture = Assets.get(alias) as Texture;
-  const width = Math.max(1, Math.round(texture.width || 1));
-  const height = Math.max(1, Math.round(texture.height || 1));
-  const fallback: ExtractedRoadProfile = {
-    width,
-    height,
-    top: new Array(width).fill(Math.round(height * 0.28)),
-    bottom: new Array(width).fill(Math.round(height * 0.87)),
-  };
-
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  if (!ctx) {
-    roadProfileCache.set(alias, fallback);
-    return fallback;
-  }
-  try {
-    const source = texture.source as { resource?: unknown } | undefined;
-    const src = source?.resource ?? source;
-    const drawable =
-      src &&
-      (typeof src === "object" && "width" in src
-        ? (src as CanvasImageSource)
-        : src instanceof ImageBitmap
-          ? src
-          : src instanceof HTMLImageElement
-            ? src
-            : src instanceof HTMLCanvasElement
-              ? src
-              : null);
-    if (!drawable) {
-      console.warn(`[surface] no drawable source for ${alias}`);
-      roadProfileCache.set(alias, fallback);
-      return fallback;
-    }
-    ctx.clearRect(0, 0, width, height);
-    ctx.drawImage(drawable, 0, 0, width, height);
-  } catch (error) {
-    console.warn(`[surface] drawImage/get source failed for ${alias}`, error);
-    roadProfileCache.set(alias, fallback);
-    return fallback;
-  }
-  let pixels: Uint8ClampedArray;
-  try {
-    pixels = ctx.getImageData(0, 0, width, height).data;
-  } catch (error) {
-    // Cross-origin / tainted-canvas — fall back to the procedural profile.
-    console.warn(`[surface] getImageData failed for ${alias}`, error);
-    roadProfileCache.set(alias, fallback);
-    return fallback;
-  }
-  const top = new Array<number>(width).fill(-1);
-  const bottom = new Array<number>(width).fill(-1);
-
-  for (let x = 0; x < width; x += 1) {
-    let t = -1;
-    let b = -1;
-    for (let y = 0; y < height; y += 1) {
-      const idx = (y * width + x) * 4;
-      const a = pixels[idx + 3]!;
-      if (a < 12) continue;
-      // SVGs rasterize differently; rely on alpha and vertical offset
-      const isRoadLike = y > height * 0.18 && a > 20;
-      if (!isRoadLike) continue;
-      if (t < 0) t = y;
-      b = y;
-    }
-    if (t < 0) {
-      for (let y = 0; y < height; y += 1) {
-        const idx = (y * width + x) * 4;
-        const a = pixels[idx + 3]!;
-        if (a < 12) continue;
-        if (t < 0) t = y;
-        b = y;
-        break;
-      }
-    }
-    top[x] = t;
-    bottom[x] = b;
-  }
-
-  const profile: ExtractedRoadProfile = {
-    width,
-    height,
-    top: smoothProfile(top, Math.round(height * 0.28)),
-    bottom: smoothProfile(bottom, Math.round(height * 0.87)),
-  };
-  roadProfileCache.set(alias, profile);
-  return profile;
-};
-
-const faceSpriteDirection = (
-  sprite: Sprite,
-  vx: number,
-  smoothing = 0.18,
-): void => {
-  if (!sprite.scale || Math.abs(vx) < 1) return;
-  // Aircraft, birds and similar source PNGs face left by default.
-  const targetFacing = vx >= 0 ? -1 : 1;
-  const currentWidthScale = Math.max(Math.abs(sprite.scale.y), 0.001);
-  const targetScaleX = targetFacing * currentWidthScale;
-  sprite.scale.x += (targetScaleX - sprite.scale.x) * smoothing;
-  if (Math.abs(targetScaleX - sprite.scale.x) < 0.001)
-    sprite.scale.x = targetScaleX;
-};
-
-const isSpriteAlias = (sprite: Sprite, aliases: string[]): boolean =>
-  aliases.some((alias) => sprite.texture === Assets.get(alias));
-
-const directionalSpriteKind = (
-  node: Container,
-): "plane" | "helicopter" | "bird" | "duck" | "cart" | null => {
-  if (!(node instanceof Sprite)) return null;
-  if (isSpriteAlias(node, ["plane", "plane2", "plane3"])) return "plane";
-  if (isSpriteAlias(node, ["helicopter", "helicopter2"])) return "helicopter";
-  if (isSpriteAlias(node, ["bird", "bird2"])) return "bird";
-  if (isSpriteAlias(node, ["duck", "duck2"])) return "duck";
-  if (isSpriteAlias(node, ["golfCar"])) return "cart";
-  return null;
-};
-
-const buildSky = (): Graphics => {
-  const g = new Graphics();
-  const bands: Array<[number, number]> = [
-    [0, 0x0b1230],
-    [0.25, 0x1b2a5e],
-    [0.5, 0x4a73c8],
-    [0.75, 0xa0c8e8],
-    [0.92, 0xffc88a],
-    [1, 0xffd9a0],
-  ];
-  const segments = 80;
-  const bandLerp = (t: number): number => {
-    for (let i = 0; i < bands.length - 1; i++) {
-      const [t0, c0] = bands[i]!;
-      const [t1, c1] = bands[i + 1]!;
-      if (t >= t0 && t <= t1) {
-        const k = (t - t0) / (t1 - t0);
-        const r =
-          ((c0 >> 16) & 0xff) + (((c1 >> 16) & 0xff) - ((c0 >> 16) & 0xff)) * k;
-        const gC =
-          ((c0 >> 8) & 0xff) + (((c1 >> 8) & 0xff) - ((c0 >> 8) & 0xff)) * k;
-        const b = (c0 & 0xff) + ((c1 & 0xff) - (c0 & 0xff)) * k;
-        return (Math.round(r) << 16) | (Math.round(gC) << 8) | Math.round(b);
-      }
-    }
-    return 0;
-  };
-  for (let i = 0; i < segments; i++) {
-    const t0 = i / segments;
-    const t1 = (i + 1) / segments;
-    g.rect(0, t0 * WORLD_H, WORLD_W, (t1 - t0) * WORLD_H + 1).fill(
-      bandLerp(t0),
-    );
-  }
-  return g;
-};
-
-const buildStars = (): Graphics => {
-  const g = new Graphics();
-  for (let i = 0; i < 120; i++) {
-    g.circle(
-      Math.random() * WORLD_W,
-      Math.random() * 1100,
-      1 + Math.random() * 2,
-    ).fill({
-      color: 0xffffff,
-      alpha: 0.4 + Math.random() * 0.6,
-    });
-  }
-  return g;
-};
-
-const makeMover = (
-  tex: Texture,
-  x: number,
-  y: number,
-  scale: number,
-  vx: number,
-): Mover => {
-  const s = new Sprite(tex);
-  place(s, x, y, scale);
-  return { sprite: s, vx, vy: 0, wrapMinX: -200, wrapMaxX: WORLD_W + 200 };
-};
-
-const addLayerStrip = (
-  parent: Container,
-  aliases: string[],
-  y: number,
-  alpha = 1,
-  scaleY = 1,
-  tint = 0xffffff,
-): void => {
-  const tileW = WORLD_W / aliases.length;
-  // Compute the tallest native height in the strip so every tile renders at
-  // the same vertical extent. Mixed native heights cause stair-step seams in
-  // the silhouette between adjacent tiles when each is scaled by its own
-  // native ratio.
-  const referenceHeight = aliases.reduce((max, alias) => {
-    const tex = Assets.get(alias) as { height?: number } | undefined;
-    return Math.max(max, tex?.height ?? 0);
-  }, 0);
-  aliases.forEach((alias, index) => {
-    const sprite = new Sprite(Assets.get(alias));
-    sprite.anchor.set(0, 1);
-    sprite.x = index * tileW;
-    sprite.y = y;
-    // Slight horizontal overlap hides sub-pixel seams between adjacent tiles.
-    sprite.width = tileW + 4;
-    if (referenceHeight > 0) {
-      sprite.height = referenceHeight * scaleY;
-    } else {
-      sprite.scale.y = sprite.scale.x * scaleY;
-    }
-    sprite.alpha = alpha;
-    sprite.tint = tint;
-    parent.addChild(sprite);
-  });
-};
-
-const addBackgroundStrip = (
-  parent: Container,
-  aliases: string[],
-  y: number,
-  alpha = 1,
-  scaleY = 1,
-  tint = 0xffffff,
-): void => {
-  const totalW = WORLD_W + BACKGROUND_OVERSCAN_X * 2;
-  const tileW = totalW / aliases.length;
-  const referenceHeight = aliases.reduce((max, alias) => {
-    const tex = Assets.get(alias) as { height?: number } | undefined;
-    return Math.max(max, tex?.height ?? 0);
-  }, 0);
-  aliases.forEach((alias, index) => {
-    const sprite = new Sprite(Assets.get(alias));
-    sprite.anchor.set(0, 1);
-    sprite.x = -BACKGROUND_OVERSCAN_X + index * tileW;
-    sprite.y = y;
-    sprite.width = tileW + 18;
-    if (referenceHeight > 0) {
-      sprite.height = referenceHeight * scaleY;
-    } else {
-      sprite.scale.y = sprite.scale.x * scaleY;
-    }
-    sprite.alpha = alpha;
-    sprite.tint = tint;
-    parent.addChild(sprite);
-  });
-};
-
-/** Background is detached from the zooming world and laid out relative to the
- * UI canvas. The container is taller than the viewport so vertical parallax
- * can shift it during flight to reveal more deep-space sky on top.
- *
- * Internal layout (origin at top-left of the container, height = canvasH * 1.5):
- *   y = 0 .. canvasH * 0.7  — darkSpaceSky (deep space, stars overlay sits here)
- *   y = canvasH * 0.55 .. canvasH * 1.5 — skyDay/Evening/Night with sun/moon
- *   The strips overlap by ~15% canvasH so the seam blends naturally.
- *
- * Default position when ball is grounded keeps the lower (sky) portion in
- * view; updateCamera shifts the container DOWN as the ball ascends so the
- * top deep-space portion drifts into the viewport. */
-const buildLayeredBackground = (
-  parent: Container,
-  mode: VisualTimeMode,
-  theme: VisualWorldTheme,
-  canvasW: number,
-  canvasH: number,
-  refs: LayeredBackgroundRefs | null = null,
-): LayeredBackgroundRefs | null => {
-  return buildLayeredBackgroundComponent(
-    parent,
-    mode,
-    theme as BackgroundVisualWorldTheme,
-    canvasW,
-    canvasH,
-    WORLD_W,
-    WORLD_H,
-    GROUND_Y,
-    refs,
-  );
-};
-
-const drawTerrainRibbon = (
-  layer: Graphics,
-  topOffset: number,
-  thickness: number,
-  color: number,
-  alpha: number,
-): void => {
-  const step = 24;
-  layer.moveTo(0, hillSurfaceY(0) + topOffset);
-  for (let x = step; x <= WORLD_W; x += step) {
-    layer.lineTo(x, hillSurfaceY(x) + topOffset);
-  }
-  layer.lineTo(WORLD_W, hillSurfaceY(WORLD_W) + topOffset + thickness);
-  for (let x = WORLD_W - step; x >= 0; x -= step) {
-    layer.lineTo(x, hillSurfaceY(x) + topOffset + thickness);
-  }
-  layer.closePath();
-  layer.fill({ color, alpha });
-};
-
-const drawTerrainSegment = (
-  layer: Graphics,
-  x0: number,
-  x1: number,
-  topOffset: number,
-  bottomOffset: number,
-  color: number,
-  alpha: number,
-): void => {
-  layer.moveTo(x0, hillSurfaceY(x0) + topOffset);
-  layer.lineTo(x1, hillSurfaceY(x1) + topOffset);
-  layer.lineTo(x1, hillSurfaceY(x1) + bottomOffset);
-  layer.lineTo(x0, hillSurfaceY(x0) + bottomOffset);
-  layer.closePath();
-  layer.fill({ color, alpha });
-};
-
-const buildProceduralFrontTerrain = (tint = 0xffffff): TerrainLayers =>
-  buildProceduralFrontTerrainComponent({
-    tint,
-    worldW: WORLD_W,
-    groundY: GROUND_Y,
-    frontTileHeight: FRONT_TILE_HEIGHT,
-    surfaceStepPx: SURFACE_STEP_PX,
-    sampledSurfaceTop,
-    sampledSurfaceBottom,
-    hillSurfaceY,
-    readRoadProfileFromTexture,
-    setSpriteVisualWidth,
-    waterForbiddenInterval: proceduralWaterForbiddenWorldX(),
-  });
-
-const addStaticSprite = (
-  parent: Container,
-  alias: string,
-  x: number,
-  y: number,
-  scale: number,
-  alpha = 1,
-  flip = false,
-): void => {
-  const sprite = new Sprite(Assets.get(alias));
-  place(sprite, x, y, scale, 0.5);
-  sprite.alpha = alpha;
-  if (flip) sprite.scale.x = -sprite.scale.x;
-  parent.addChild(sprite);
-};
-
-const buildGroundDetails = (depth: "back" | "mid" | "front"): Container => {
-  const layer = new Container();
-  const alpha = depth === "front" ? 0.72 : depth === "mid" ? 0.78 : 0.5;
-  const yOffset = depth === "front" ? 0 : depth === "mid" ? -180 : -360;
-  const scaleMul = depth === "front" ? 1 : depth === "mid" ? 0.86 : 0.72;
-
-  // Water/sand hazards are now rendered procedurally inside the front
-  // terrain (see analyzeTerrainForHazards in components/terrain-builder.ts).
-  // Hole is rendered by renderMapFeature as a holeFlag sprite.
-
-  const bushCount = depth === "front" ? 4 : depth === "mid" ? 6 : 4;
-  for (let i = 0; i < bushCount; i++) {
-    const alias =
-      depth === "front" ? `frontBush${(i % 4) + 1}` : `midBush${(i % 5) + 1}`;
-    const bush = new Sprite(Assets.get(alias));
-    const spread = depth === "back" ? 380 : depth === "mid" ? 260 : 520;
-    place(
-      bush,
-      depth === "front" ? 80 + i * spread : 120 + i * spread + (i % 2) * 24,
-      depth === "front"
-        ? GROUND_Y - 70 - (i % 2) * 16
-        : GROUND_Y - 440 + yOffset - (i % 3) * 28,
-      (depth === "front" ? 0.46 : 0.42) * (1 + (i % 2) * 0.08) * scaleMul,
-      0.5,
-    );
-    bush.alpha = alpha;
-    layer.addChild(bush);
-  }
-
-  return layer;
-};
-
-const buildDistantVegetation = (): Container => {
-  const layer = new Container();
-  const points: Array<{
-    x: number;
-    y: number;
-    s: number;
-    a: number;
-    alias: string;
-  }> = [
-    { x: 160, y: 2860, s: 0.24, a: 0.42, alias: "midBush1" },
-    { x: 360, y: 2790, s: 0.22, a: 0.35, alias: "midBush3" },
-    { x: 590, y: 2920, s: 0.25, a: 0.45, alias: "midBush2" },
-    { x: 830, y: 2740, s: 0.22, a: 0.35, alias: "midBush4" },
-    { x: 1080, y: 2910, s: 0.24, a: 0.4, alias: "midBush5" },
-    { x: 1320, y: 2810, s: 0.22, a: 0.34, alias: "midBush2" },
-    { x: 1680, y: 2880, s: 0.24, a: 0.38, alias: "midBush1" },
-    { x: 2120, y: 2770, s: 0.21, a: 0.32, alias: "midBush4" },
-    { x: 2580, y: 2930, s: 0.25, a: 0.4, alias: "midBush2" },
-    { x: 3080, y: 2820, s: 0.22, a: 0.35, alias: "midBush5" },
-    { x: 3560, y: 2890, s: 0.24, a: 0.38, alias: "midBush3" },
-    { x: 4060, y: 2790, s: 0.21, a: 0.32, alias: "midBush2" },
-    { x: 4520, y: 2900, s: 0.23, a: 0.4, alias: "midBush4" },
-    { x: 4960, y: 2780, s: 0.22, a: 0.34, alias: "midBush1" },
-    { x: 5440, y: 2900, s: 0.25, a: 0.42, alias: "midBush5" },
-    { x: 5920, y: 2810, s: 0.22, a: 0.34, alias: "midBush3" },
-    { x: 6380, y: 2890, s: 0.24, a: 0.4, alias: "midBush2" },
-    { x: 6840, y: 2770, s: 0.21, a: 0.32, alias: "midBush4" },
-    { x: 7340, y: 2920, s: 0.25, a: 0.42, alias: "midBush1" },
-    { x: 7820, y: 2810, s: 0.22, a: 0.35, alias: "midBush5" },
-    { x: 8280, y: 2880, s: 0.24, a: 0.38, alias: "midBush3" },
-    { x: 8780, y: 2790, s: 0.21, a: 0.32, alias: "midBush2" },
-  ];
-  for (const p of points) {
-    const node = new Sprite(Assets.get(p.alias));
-    place(node, p.x, p.y, p.s, 0.5);
-    node.alpha = p.a;
-    layer.addChild(node);
-  }
-  return layer;
-};
-
-const addWorldSprite = (
-  parent: Container,
-  alias: string,
-  x: number,
-  y: number,
-  scale: number,
-  alpha = 1,
-  flip = false,
-  sizeMul = 1,
-): Sprite => {
-  const sprite = new Sprite(Assets.get(alias));
-  const visualWidth = PLANNED_HAZARD_WIDTH * sizeMul;
-  place(sprite, x, y, 1, 0.5);
-  setSpriteVisualWidth(sprite, visualWidth, flip);
-  sprite.alpha = alpha;
-  parent.addChild(sprite);
-  return sprite;
-};
-
-const addPlanet = (
-  parent: Container,
-  x: number,
-  y: number,
-  radius: number,
-  color: number,
-): void => {
-  const planet = new Graphics();
-  planet.circle(0, 0, radius).fill({ color, alpha: 0.86 });
-  planet.ellipse(0, 0, radius * 1.5, radius * 0.34).stroke({
-    color: 0xe8f0ff,
-    alpha: 0.42,
-    width: 4,
-  });
-  planet.x = x;
-  planet.y = y;
-  parent.addChild(planet);
-};
-
-const addComet = (parent: Container, x: number, y: number, scale = 1): void => {
-  const comet = new Graphics();
-  comet.moveTo(-90 * scale, 18 * scale);
-  comet.lineTo(6 * scale, -10 * scale);
-  comet.lineTo(22 * scale, 6 * scale);
-  comet.lineTo(-70 * scale, 36 * scale);
-  comet.closePath();
-  comet.fill({ color: 0x8feaff, alpha: 0.4 });
-  comet.circle(24 * scale, 0, 13 * scale).fill({ color: 0xe8ffff, alpha: 0.9 });
-  comet.x = x;
-  comet.y = y;
-  parent.addChild(comet);
-};
-
-const buildObjectLayerSystem = (
-  mobileScale: number,
-  layers: ObjectLayers,
-): {
-  container: Container;
-  spawns: AmbientMobSpawn[];
-} => {
-  return buildObjectLayerSystemComponent(
-    mobileScale,
-    layers,
-    WORLD_W,
-    hillSurfaceY,
-  );
-};
+const flagY = (): number => hillSurfaceY(FLAG_X) - 130;
+const holeY = (): number => hillSurfaceY(HOLE_X) + 8;
 
 export type BootstrapHooks = {
   onProgress?: (fraction: number) => void;
@@ -1027,7 +130,6 @@ export const bootstrapGame = (
   let resizeDebounceId: number | null = null;
   let canvasW = 0;
   let canvasH = 0;
-  const movers: Mover[] = [];
   const ambientMotions: AmbientMotion[] = [];
   const flipbooks: Flipbook[] = [];
   const effects: Effect[] = [];
@@ -1168,8 +270,24 @@ export const bootstrapGame = (
         : -1;
     const speedByLayer =
       aiType === "cloud" ? 2 + (index % 4) : [18, 42, 54, 96, 38, 48][layerId]!;
-    if (node instanceof Sprite && directionalKind)
-      faceSpriteDirection(node, direction, 1);
+    const finalVx =
+      directionalKind === "plane"
+        ? -Math.abs(speedByLayer)
+        : direction * speedByLayer;
+    if (node instanceof Sprite && directionalKind) {
+      if (directionalKind === "plane") {
+        node.scale.x = Math.abs(node.scale.y);
+      } else {
+        faceSpriteDirection(
+          node,
+          direction,
+          1,
+          directionalKind === "helicopter" ||
+            directionalKind === "bird" ||
+            directionalKind === "duck",
+        );
+      }
+    }
     const groundedY = isGroundCart ? hillSurfaceY(node.x) : node.y;
     if (isGroundCart) node.y = groundedY;
     ambientMotions.push({
@@ -1182,7 +300,7 @@ export const bootstrapGame = (
       baseY: isGroundCart
         ? groundedY
         : Math.min(Math.max(node.y, band.minY), band.maxY),
-      vx: direction * speedByLayer,
+      vx: finalVx,
       // Vertical velocity kept at 0; positive vy used to accumulate downward drift each frame (Y grows down).
       vy: 0,
       phase: index * 0.9 + layerId * 0.7,
@@ -1196,7 +314,7 @@ export const bootstrapGame = (
       patrolRadius: aiType === "patrol" ? 1200 + (index % 4) * 420 : 0,
       wrapMinX: aiType === "plane" ? -1000 : -500,
       wrapMaxX: aiType === "plane" ? WORLD_W + 1000 : WORLD_W + 500,
-      facing: direction,
+      facing: directionalKind === "plane" ? -1 : direction,
       clampYMin: band.minY,
       clampYMax: band.maxY,
     });
@@ -1281,7 +399,7 @@ export const bootstrapGame = (
 
     // Water and sand hazards are NOT drawn here — they're rendered
     // procedurally inside the front terrain by analyzeTerrainForHazards
-    // (see components/terrain-builder.ts), which masks them to the actual
+    // (see components/terrain/terrain-builder.ts), which masks them to the actual
     // surface curve so they sit embedded in the ground.
     if (feature.type === "water" || feature.type === "sand") return;
     if (!feature.asset) return;
@@ -1493,79 +611,6 @@ export const bootstrapGame = (
     plannedCrashTarget = null;
   };
 
-  const hazardAliasFor = (
-    kind: DecorativeEvent["kind"] | CrashCause,
-  ): string | null => {
-    switch (kind) {
-      case "bird":
-        return "bird";
-      case "plane":
-        return "plane2";
-      case "helicopter":
-        return "helicopter2";
-      case "cart":
-        return "golfCar";
-      case "timeout":
-      case "fakeBoost":
-        return "ufo";
-      default:
-        return null;
-    }
-  };
-
-  const layerForKind = (
-    kind: DecorativeEvent["kind"] | CrashCause,
-  ): ObjectLayerId =>
-    kind === "cart"
-      ? 0
-      : kind === "bird" || kind === "wind"
-        ? 1
-        : kind === "helicopter"
-          ? 2
-          : kind === "plane"
-            ? 3
-            : kind === "timeout" || kind === "fakeBoost"
-              ? 5
-              : 4;
-
-  const plannedHazardImpactPosition = (
-    kind: DecorativeEvent["kind"] | CrashCause,
-    atSec: number,
-  ): { x: number; y: number } => {
-    const layerId = layerForKind(kind);
-    const layers = objectLayersForScale();
-    const x = Math.min(
-      PLAY_END_X,
-      currentTeeX + Math.max(420, BALL_SPEED_X * atSec),
-    );
-    const y = layerId === 0 ? hillSurfaceY(x) : layers[layerId].centerY;
-    return { x, y };
-  };
-
-  const hazardVelocity = (
-    kind: DecorativeEvent["kind"] | CrashCause,
-    primary: boolean,
-  ): number => {
-    const speedMul = primary ? 0.55 : 1;
-    switch (kind) {
-      case "cart":
-        return 70 * speedMul;
-      case "bird":
-        return -90 * speedMul;
-      case "helicopter":
-        return -55 * speedMul;
-      case "plane":
-        return -120 * speedMul;
-      case "timeout":
-      case "fakeBoost":
-        return -35 * speedMul;
-      case "wind":
-        return -45 * speedMul;
-      default:
-        return 0;
-    }
-  };
-
   const registerPlannedHazard = (
     kind: DecorativeEvent["kind"] | CrashCause,
     node: Sprite | Text,
@@ -1667,7 +712,13 @@ export const bootstrapGame = (
     plan.decorativeEvents.forEach((event) => {
       addPlannedHazard(
         event.kind,
-        plannedHazardImpactPosition(event.kind, event.atSec),
+        impactPositionForPlan(
+          event.kind,
+          event.atSec,
+          currentTeeX,
+          objectLayersForScale(),
+          hillSurfaceY,
+        ),
         event.atSec,
         false,
       );
@@ -1679,7 +730,13 @@ export const bootstrapGame = (
         : plan.crashAtSec * primaryImpactProgress();
       plannedCrashTarget = addPlannedHazard(
         impactCause,
-        plannedHazardImpactPosition(impactCause, impactAtSec),
+        impactPositionForPlan(
+          impactCause,
+          impactAtSec,
+          currentTeeX,
+          objectLayersForScale(),
+          hillSurfaceY,
+        ),
         impactAtSec,
         true,
       );
@@ -1756,7 +813,8 @@ export const bootstrapGame = (
         motion.node.x =
           motion.baseX +
           (motion.aiType === "patrol"
-            ? Math.sin(now / 1300 + motion.phase) * motion.amplitudeX
+            ? Math.sin(now / PATROL_X_WOBBLE_MS + motion.phase) *
+              motion.amplitudeX
             : 0);
         motion.node.y =
           motion.baseY +
@@ -1776,10 +834,27 @@ export const bootstrapGame = (
       ) {
         faceSpriteDirection(motion.node, motion.vx);
       } else if (motion.node instanceof Sprite && motion.aiType !== "cloud") {
-        const targetFacing: 1 | -1 = motion.vx > 0 ? -1 : 1;
-        const currentAbsScale = Math.abs(motion.node.scale.x);
-        motion.node.scale.x +=
-          (targetFacing * currentAbsScale - motion.node.scale.x) * 0.08;
+        const vxForFacing =
+          motion.aiType === "patrol"
+            ? effectiveAmbientPatrolVx(
+                motion.vx,
+                motion.amplitudeX,
+                now,
+                motion.phase,
+              )
+            : motion.vx;
+
+        if (motion.kind === "plane") {
+          const originalDirection = 1;
+          motion.node.scale.x =
+            Math.abs(motion.node.scale.y) * originalDirection;
+        } else {
+          const invertFacing =
+            motion.kind === "helicopter" ||
+            motion.kind === "bird" ||
+            motion.kind === "duck";
+          faceSpriteDirection(motion.node, vxForFacing, 1, invertFacing);
+        }
       }
     }
   };
@@ -2659,15 +1734,8 @@ export const bootstrapGame = (
   const animate = (ticker: Ticker): void => {
     const dt = ticker.deltaMS / 1000;
     const now = performance.now();
-    for (const m of movers) {
-      m.sprite.x += m.vx * dt;
-      m.sprite.y += m.vy * dt;
-      if (m.vx > 0 && m.sprite.x > m.wrapMaxX) m.sprite.x = m.wrapMinX;
-      if (m.vx < 0 && m.sprite.x < m.wrapMinX) m.sprite.x = m.wrapMaxX;
-      faceSpriteDirection(m.sprite, m.vx);
-    }
-    updateFlipbooks(now);
     updateAmbientDecor(dt, now);
+    updateFlipbooks(now);
     updatePlannedHazards(now);
     updateCollision(now);
     updateBall(now);
@@ -2862,7 +1930,7 @@ export const bootstrapGame = (
 
     hooks.onProgress?.(0.05);
     await Assets.load(
-      MANIFEST.map((asset) => ({
+      GAME_ASSET_MANIFEST.map((asset) => ({
         ...asset,
         src: `${assets}${asset.src}`,
       })),
@@ -2872,7 +1940,7 @@ export const bootstrapGame = (
 
     // Sample the visible front layer once and rebuild map layouts on it.
     try {
-      const surfaceFn = await buildFrontSurface("");
+      const surfaceFn = await sampleFairwaySurfaceFromAssets("");
       setSurfaceFn(surfaceFn);
       rebuildLayouts();
       mapLayout = getMapLayout(visualWorldFromMode(game.visualTimeMode));
@@ -2934,7 +2002,7 @@ export const bootstrapGame = (
     // triggers Pixi warnings — release via Assets.unload after the stage is torn down.
     app.destroy(true, { children: true, texture: false });
     void Assets.unload([
-      ...new Set(MANIFEST.map((entry) => entry.alias)),
+      ...new Set(GAME_ASSET_MANIFEST.map((entry) => entry.alias)),
     ]).catch(() => undefined);
   };
 };

@@ -21,7 +21,7 @@ export const verify = async (proof: ProvablyFairProof): Promise<boolean> => {
   const seedHash = await sha256Hex(proof.serverSeed);
   if (seedHash !== proof.serverSeedHash && proof.serverSeed !== proof.serverSeedHash) return false;
 
-  const { generatePlan } = await import("../game/math.js");
+  const { generatePlan } = await import("../game/components/math/math.js");
   const plan = await generatePlan({
     serverSeed: proof.serverSeed,
     clientSeed: proof.clientSeed,

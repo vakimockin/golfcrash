@@ -20,10 +20,24 @@ from typing import Any, Literal
 from .events import DEFAULT_EVENTS, EventTable
 from .rng import Seed, floats, server_seed_hash
 
+# House edge on the Bustabit crash distribution. Calibrated for ~96% total RTP
+# once jackpot and pre-shot-fail outcomes are accounted for (see test
+# `test_simulate_rtp_in_reasonable_range` and rtp.simulate_table).
 HOUSE_EDGE = 0.06
-MAX_CRASH = 1_000_000.0
-JACKPOT_MULT = 10.0
-JACKPOT_PROB = 0.005
+
+# Caps the crash multiplier so a freak roll cannot exceed the §1.1 Max Win
+# (50 000–100 000X). 100 000 is the cap; bonus-round payouts can extend
+# beyond it but are computed via a separate path (TODO: bonus round payout
+# distribution — pending product decision per §2.2).
+MAX_CRASH = 100_000.0
+
+# Hole-in-one jackpot per §2.1 Phase 5: the rare "near-miss → ball falls in"
+# moment that pays the §1.1 maximum lunka multiplier of 2000X. Probability
+# is calibrated so jackpot EV (= 2000 × p) stays < 5% of total RTP, leaving
+# the rest of the budget to the standard crash distribution.
+JACKPOT_MULT = 2000.0
+JACKPOT_PROB = 0.00002  # ≈ 1 in 50 000 spins
+
 GROWTH_C = 0.08
 GROWTH_K = 1.6
 
@@ -51,6 +65,14 @@ class RoundResult:
     pre_shot_fail: PreShotFail | None = None
     crash_cause: CrashCause | None = None
     decorative_events: list[DecorativeEvent] = field(default_factory=list)
+    # §2.2 Space Bonus Round trigger flag. Visual + state cue only at this
+    # stage; the bonus-round payout distribution is product-dependent (TODO)
+    # so RTP is currently unaffected when this flag flips on.
+    bonus_round_triggered: bool = False
+    # §2.3 Near-miss visual cue. Lights up ~30% of crash rounds so the
+    # client can play the §2.1 Phase 5 spinning-on-the-rim animation.
+    # Does not change payout — purely a render hint.
+    near_miss: bool = False
 
     @property
     def round_id(self) -> str:
@@ -85,6 +107,8 @@ class RoundResult:
             "crashAtSec": self.crash_at_sec,
             "preShotFail": pre_shot_fail,
             "crashCause": self.crash_cause,
+            "bonusRoundTriggered": self.bonus_round_triggered,
+            "nearMiss": self.near_miss,
             "decorativeEvents": [
                 {"kind": event.kind, "atSec": event.at_sec}
                 for event in self.decorative_events
@@ -125,9 +149,29 @@ def _pick_pre_shot_fail(u: float, table: EventTable) -> PreShotFail | None:
     return None
 
 
-def _pick_crash_cause(u: float, crash_at_sec: float) -> CrashCause:
-    options: list[CrashCause] = ["cart", "wind", "bird", "helicopter", "plane", "fakeBoost"]
-    return options[min(len(options) - 1, math.floor(u * len(options)))]
+def _pick_crash_cause(u: float, table: EventTable) -> CrashCause:
+    """Pick a crash cause weighted by the in-flight event probabilities in
+    `events.py`. If none of the event probabilities fire, the crash falls
+    back to "timeout" (natural Bustabit crash with no narrative cause).
+
+    The cumulative weights typically sum to ~17%, so most rounds get the
+    plain "timeout" label, which matches the player experience: a crash
+    can happen at any time without a specific obstacle on screen.
+    """
+    cum = 0.0
+    weighted: list[tuple[CrashCause, float]] = [
+        ("bird", table.in_flight_bird),
+        ("wind", table.in_flight_wind),
+        ("helicopter", table.in_flight_helicopter),
+        ("plane", table.in_flight_plane),
+        ("cart", table.in_flight_cart),
+        ("fakeBoost", table.fake_boost),
+    ]
+    for cause, prob in weighted:
+        cum += prob
+        if u < cum:
+            return cause
+    return "timeout"
 
 
 def _flight_duration(u: float) -> float:
@@ -178,6 +222,16 @@ def _schedule_decorative(rolls: list[float], crash_t: float) -> list[DecorativeE
 
 
 def generate_round(seed: Seed, table: EventTable = DEFAULT_EVENTS) -> RoundResult:
+    # Roll layout (every position is consumed deterministically from the seed):
+    #   [0] pre-shot fail
+    #   [1] hole-in-one jackpot
+    #   [2] crash multiplier (Bustabit U)
+    #   [3] crash cause (weighted)
+    #   [4] landing zone
+    #   [5] flight duration
+    #   [6] bonus-round trigger (visual flag, §2.2)
+    #   [7] near-miss flag        (visual flag, §2.3)
+    #   [8..] decorative events
     rolls = floats(seed, count=32)
 
     pre_shot = _pick_pre_shot_fail(rolls[0], table)
@@ -193,8 +247,8 @@ def generate_round(seed: Seed, table: EventTable = DEFAULT_EVENTS) -> RoundResul
         )
 
     if rolls[1] < JACKPOT_PROB:
-        crash_t = _flight_duration(rolls[2])
-        decorative = _schedule_decorative(rolls[3:], crash_t)
+        crash_t = _flight_duration(rolls[5])
+        decorative = _schedule_decorative(rolls[8:], crash_t)
         return RoundResult(
             seed=seed,
             outcome="hole_in_one",
@@ -203,13 +257,17 @@ def generate_round(seed: Seed, table: EventTable = DEFAULT_EVENTS) -> RoundResul
             landing_zone="hole",
             crash_at_sec=crash_t,
             decorative_events=decorative,
+            # A hole-in-one is itself the climactic near-miss → fall-in moment.
+            near_miss=True,
         )
 
     crash_mult = crash_from_uniform(rolls[2])
     crash_t = _flight_duration(rolls[5])
-    cause = _pick_crash_cause(rolls[3], crash_t)
+    cause = _pick_crash_cause(rolls[3], table)
     landing_zone = _pick_landing_zone(rolls[4], cause)
-    decorative = _schedule_decorative(rolls[6:], crash_t)
+    bonus_triggered = rolls[6] < table.bonus_trigger
+    near_miss = rolls[7] < table.near_miss_target
+    decorative = _schedule_decorative(rolls[8:], crash_t)
     return RoundResult(
         seed=seed,
         outcome="crash",
@@ -219,6 +277,8 @@ def generate_round(seed: Seed, table: EventTable = DEFAULT_EVENTS) -> RoundResul
         crash_at_sec=crash_t,
         crash_cause=cause,
         decorative_events=decorative,
+        bonus_round_triggered=bonus_triggered,
+        near_miss=near_miss,
     )
 
 

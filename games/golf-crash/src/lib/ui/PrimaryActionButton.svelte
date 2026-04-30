@@ -1,7 +1,7 @@
 <script lang="ts">
   import { microToCurrencyString } from "@golf-crash/utils-shared";
   import { game } from "$lib/stores/game.svelte";
-  import { startRound, cashOut } from "$lib/game/round";
+  import { startRound, cashOut } from "$lib/game/components/round/round";
   import { t } from "$lib/i18n";
 
   const handleClick = () => {

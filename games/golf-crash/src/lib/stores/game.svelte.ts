@@ -3,7 +3,7 @@ import {
   MAX_BET_MICRO,
   STEP_BET_MICRO,
 } from "@golf-crash/utils-shared";
-import type { CrashCause, PreShotFail } from "../game/math.js";
+import type { CrashCause, PreShotFail } from "../game/components/math/math.js";
 import type { AppLang } from "../i18n.js";
 
 export type RoundOutcome = "fairway" | "sand" | "water" | "cashout" | "jackpot";

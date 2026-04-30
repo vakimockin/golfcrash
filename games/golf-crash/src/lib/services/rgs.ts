@@ -6,7 +6,7 @@ import {
   type PreShotFail,
   type RoundOutcomeKind,
   type RoundPlan,
-} from "../game/math.js";
+} from "../game/components/math/math.js";
 
 export type SessionInfo = {
   sessionId: string;
