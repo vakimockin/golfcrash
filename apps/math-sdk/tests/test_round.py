@@ -1,15 +1,18 @@
 from collections import Counter
+from unittest.mock import patch
 
 from golf_crash_math.events import DEFAULT_EVENTS
 from golf_crash_math.rng import Seed
+import golf_crash_math.round as round_mod
 from golf_crash_math.round import (
     HOUSE_EDGE,
     JACKPOT_MULT,
+    NORMAL_CRASH_MULTIPLIER_CAP,
     crash_from_uniform,
     generate_round,
     generate_stake_engine_state,
 )
-from golf_crash_math.rtp import simulate
+from golf_crash_math.rtp import simulate, simulate_table
 
 
 def test_crash_from_uniform_house_edge_returns_one() -> None:
@@ -47,30 +50,26 @@ def test_outcome_distribution_over_many_rounds() -> None:
     expected_pre_shot = rounds * pre_shot_total
     assert abs(counter["pre_shot_fail"] - expected_pre_shot) < expected_pre_shot * 0.5
     assert counter["crash"] > rounds * 0.95
-    # JACKPOT_PROB is now ~1 in 50 000, so 20k rounds isn't enough to
-    # guarantee a hole-in-one. Just assert the bucket exists in the counter
-    # (never below zero) — the dedicated jackpot test runs a longer sweep.
+    # JACKPOT_PROB is microscopic (~1 in 1e6 after pre-shot); 20k rounds
+    # will almost never see hole_in_one. Dedicated test uses a RNG stub.
     assert counter["hole_in_one"] >= 0
 
 
 def test_hole_in_one_payout_is_jackpot() -> None:
-    """Hole-in-one is now ~1 in 50k rounds and pays §1.1's 2000X cap.
+    """Hole-in-one pays JACKPOT_MULT; probability is far too low for brute sweep."""
 
-    Sweep enough rounds (1M) that the test reliably finds at least one
-    jackpot regardless of seed. The jackpot tail is so thin that smaller
-    sweeps make this test flaky.
-    """
-    found = False
-    for nonce in range(1_000_000):
-        r = generate_round(Seed("dev", "dev", nonce))
-        if r.outcome == "hole_in_one":
-            assert r.crash_multiplier == JACKPOT_MULT
-            assert r.crash_multiplier == 2000.0  # §1.1 / §2.1 Phase 5
-            assert r.pre_shot_fail is None
-            assert r.near_miss is True
-            found = True
-            break
-    assert found, "expected at least one hole-in-one in 1M rounds"
+    def fixed_floats_below_hole_threshold(_seed: Seed, count: int = 32) -> list[float]:
+        rolls = [0.5] * count
+        rolls[1] = 0.0  # < JACKPOT_PROB ⇒ hole-in-one path
+        return rolls
+
+    with patch.object(round_mod, "floats", fixed_floats_below_hole_threshold):
+        r = generate_round(Seed("dev", "dev", 0))
+    assert r.outcome == "hole_in_one"
+    assert r.crash_multiplier == JACKPOT_MULT
+    assert r.crash_multiplier == 2000.0
+    assert r.pre_shot_fail is None
+    assert r.near_miss is True
 
 
 def test_decorative_events_within_flight_window() -> None:
@@ -99,19 +98,27 @@ def test_stake_engine_state_matches_frontend_contract() -> None:
 
 
 def test_simulate_rtp_in_target_band() -> None:
-    """Total RTP must land in the §1.2 95-97% band.
+    """Crash cashouts x1.2 / x1.5 / x2 — таргетна смуга RTP ~96–97 % (довга границя книги).
 
-    Theoretical RTP =
-        jackpot_contrib + (1 - p_pre_shot - p_jackpot) * (1 - HOUSE_EDGE)
-      = 2000 * 0.00002  + (1 - 0.015 - 0.00002)        * 0.94
-      = 0.04            + 0.985                         * 0.94
-      ≈ 0.966   (i.e. 96.6%)
-
-    The 200k-round simulation should land inside [94%, 99%] with comfortable
-    margin; the wider band absorbs the rare-jackpot variance.
+    Одна пара PF-seed дає статистичний розкид навіть на сотнях тисяч nonce;
+    тримуємо м'який коридор, щоб CI не смикався від рідкісних джекпот-хітів.
     """
-    out = simulate(rounds=200_000, cashout_target=1.5)
-    assert 0.94 < out["rtp"] < 0.99, f"RTP out of band: {out['rtp']:.4f}"
+
+    out = simulate(rounds=250_000, cashout_target=1.5)
+    assert 0.952 < out["rtp"] < 0.982, f"RTP out of band: {out['rtp']:.4f}"
+
+    rows = simulate_table(rounds=200_000, targets=(1.2, 1.5, 2.0))
+    for row in rows:
+        r = row["rtp"]
+        assert 0.952 < r < 0.982, f"RTP out of band at target {row['cashout_target']}: {r:.4f}"
+
+
+def test_regular_crash_multiplier_capped_below_jackpot() -> None:
+    """Ordinary crashes must not inflate into hundreds X — jackpot stays singular."""
+    for nonce in range(100_000):
+        r = generate_round(Seed("cap", "cap", nonce))
+        if r.outcome == "crash":
+            assert r.crash_multiplier <= NORMAL_CRASH_MULTIPLIER_CAP
 
 
 def test_crash_multiplier_capped_at_max_crash() -> None:

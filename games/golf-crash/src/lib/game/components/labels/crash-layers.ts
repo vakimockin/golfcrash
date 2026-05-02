@@ -8,6 +8,6 @@ export const CRASH_LAYER: Record<CrashCause, ObjectLayerId> = {
   bird: 1,
   helicopter: 2,
   plane: 3,
-  timeout: 5,
+  landed: 4,
   fakeBoost: 5,
 };

@@ -1,8 +1,3 @@
-/**
- * Единая точка для гольф-карты: размеры, якорь, альфы, алиас ассета.
- * Ambient (#buildObjectLayerSystem), превью плановых хазардов и map features
- * должны использовать только `spawnGolfCartSprite` + константы ниже.
- */
 import { Assets, Container, Sprite } from "pixi.js";
 import { setSpriteVisualWidth } from "./sprite-placement.js";
 
@@ -21,7 +16,7 @@ export const GOLF_CART_IMPACT_OFFSET_Y_PX = 1;
 export const GOLF_CART_ALPHA_AMBIENT = 1;
 
 export const GOLF_CART_ALPHA_PLANNED_PRIMARY = 1;
-export const GOLF_CART_ALPHA_PLANNED_SECONDARY = 0.95;
+export const GOLF_CART_ALPHA_PLANNED_SECONDARY = 1;
 
 /** После окна подсветки в `updatePlannedHazards` (secondary cart vs остальные 0.62). */
 export const GOLF_CART_ALPHA_PLANNED_SECONDARY_STEADY = 0.9;

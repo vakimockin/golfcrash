@@ -134,7 +134,8 @@ const clearLandingTimer = (): void => {
 };
 
 const reportWalletError = (error: unknown): void => {
-  game.lastError = error instanceof Error ? error.message : "Wallet operation failed";
+  game.lastError =
+    error instanceof Error ? error.message : "Wallet operation failed";
 };
 
 const logShootPlan = (plan: RoundPlan): void => {
@@ -165,7 +166,10 @@ const ensureWallet = async (): Promise<void> => {
   const session = await authenticate();
   game.balanceMicro = session.balanceMicro;
   game.currency = session.currency;
-  if (session.betLevels.length > 0 && !session.betLevels.includes(game.betMicro)) {
+  if (
+    session.betLevels.length > 0 &&
+    !session.betLevels.includes(game.betMicro)
+  ) {
     game.betMicro = session.defaultBetLevel ?? session.betLevels[0]!;
   }
   if (session.activeRoundPlan && !pendingPlan && !activePlan) {
@@ -205,7 +209,10 @@ export const prerollNextRound = async (): Promise<void> => {
   }
 };
 
-const scheduleReset = (delayMs = RESET_DELAY_MS, resetToStart = false): void => {
+const scheduleReset = (
+  delayMs = RESET_DELAY_MS,
+  resetToStart = false,
+): void => {
   clearReset();
   resetTimer = setTimeout(() => {
     resetTimer = null;
@@ -231,14 +238,19 @@ const finishCrash = (cause: CrashCause): void => {
   game.multiplier = game.crashAt;
   game.winningsMicro = 0;
   game.crashCause = cause;
-  game.history = [...game.history.slice(-6), activePlan?.landingZone === "sand" ? "sand" : "water"];
+  game.history = [
+    ...game.history.slice(-6),
+    activePlan?.landingZone === "sand" ? "sand" : "water",
+  ];
   void trackEvent(`crash:${cause}`);
   void settleWin(0);
   scheduleReset();
 };
 
 const isZeroCrash = (plan: RoundPlan): boolean =>
-  plan.landingZone === "water" || plan.crashCause === "timeout" || plan.crashCause === "fakeBoost";
+  plan.landingZone === "water" ||
+  plan.crashCause === "landed" ||
+  plan.crashCause === "fakeBoost";
 
 const impactCauseForPlan = (plan: RoundPlan): CrashCause | null =>
   plan.crashCause ?? (plan.landingZone === "cart" ? "cart" : null);
@@ -291,7 +303,8 @@ const beginSafeLanding = (): void => {
 
 const finishHoleInOne = (): void => {
   stopTicker();
-  const payoutMultiplier = game.crashAt > 0 ? game.crashAt : flightStartMultiplier * JACKPOT_MULT;
+  const payoutMultiplier =
+    game.crashAt > 0 ? game.crashAt : flightStartMultiplier * JACKPOT_MULT;
   const payout = Math.round(game.betMicro * payoutMultiplier);
   game.multiplier = payoutMultiplier;
   game.winningsMicro = payout;
@@ -330,7 +343,8 @@ export const startRound = async (): Promise<void> => {
     const spin = await placeBet(game.betMicro);
     const plan = spin?.roundPlan ?? pendingPlan;
     if (!plan) {
-      game.lastError = "RGS round.state did not include a Golf Crash round plan";
+      game.lastError =
+        "RGS round.state did not include a Golf Crash round plan";
       if (spin?.roundActive) void endRound(0);
       return;
     }
@@ -351,16 +365,18 @@ export const startRound = async (): Promise<void> => {
 
   pendingPlan = null;
   nextEventIdx = 0;
-    primaryImpactFired = false;
+  primaryImpactFired = false;
 
-    flightStartMultiplier = 1;
-    game.multiplier = flightStartMultiplier;
-    game.winningsMicro = Math.round(game.betMicro * flightStartMultiplier);
+  flightStartMultiplier = 1;
+  game.multiplier = flightStartMultiplier;
+  game.winningsMicro = Math.round(game.betMicro * flightStartMultiplier);
   game.crashCause = null;
   game.preShotFail = null;
   game.isJackpot = activePlan.outcome === "holeInOne";
-    game.crashAt =
-      activePlan.outcome === "preShotFail" ? 1 : flightStartMultiplier * activePlan.crashMultiplier;
+  game.crashAt =
+    activePlan.outcome === "preShotFail"
+      ? 1
+      : flightStartMultiplier * activePlan.crashMultiplier;
   logShootPlan(activePlan);
 
   if (activePlan.outcome === "preShotFail" && activePlan.preShotFail !== null) {
@@ -395,7 +411,8 @@ export const startRound = async (): Promise<void> => {
     const duration = Math.min(7, Math.max(5, activePlan.crashAtSec));
     const primaryImpactAt = duration * 0.68;
     const progress = Math.min(1, elapsed / duration);
-    const m = flightStartMultiplier + (game.crashAt - flightStartMultiplier) * progress;
+    const m =
+      flightStartMultiplier + (game.crashAt - flightStartMultiplier) * progress;
     if (
       !primaryImpactFired &&
       elapsed >= primaryImpactAt &&
@@ -410,9 +427,16 @@ export const startRound = async (): Promise<void> => {
       game.multiplier = game.crashAt;
       if (activePlan.outcome === "holeInOne") {
         finishHoleInOne();
-      } else if (activePlan.outcome === "crash" && activePlan.crashCause !== null && isZeroCrash(activePlan)) {
+      } else if (
+        activePlan.outcome === "crash" &&
+        activePlan.crashCause !== null &&
+        isZeroCrash(activePlan)
+      ) {
         beginCrashResolution(activePlan.crashCause);
-      } else if (activePlan.landingZone !== "water" && activePlan.landingZone !== "hole") {
+      } else if (
+        activePlan.landingZone !== "water" &&
+        activePlan.landingZone !== "hole"
+      ) {
         beginSafeLanding();
       }
       return;
@@ -436,7 +460,11 @@ export const cashOut = async (): Promise<void> => {
   game.phase = "cashOut";
   game.history = [...game.history.slice(-6), "cashout"];
 
-  if (activePlan?.serverSeedHash && activePlan.seed.serverSeed && activePlan.seed.clientSeed) {
+  if (
+    activePlan?.serverSeedHash &&
+    activePlan.seed.serverSeed &&
+    activePlan.seed.clientSeed
+  ) {
     const proofOk = await verify({
       serverSeedHash: activePlan.serverSeedHash,
       serverSeed: activePlan.seed.serverSeed,

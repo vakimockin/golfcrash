@@ -4,10 +4,13 @@
  * same formula, same RNG → identical results for the same seed.
  */
 
-export const HOUSE_EDGE = 0.06;
+export const HOUSE_EDGE = 0.02;
 export const MAX_CRASH = 1_000_000;
+/** Ordinary crash rounds — keep hole-in-one (`JACKPOT_MULT`) visually/economically supreme. */
+export const NORMAL_CRASH_MULTIPLIER_CAP = 1000;
 export const JACKPOT_MULT = 10;
-export const JACKPOT_PROB = 0.005;
+/** P(hole-in-one | survived pre-shot): ~1 in 1 000 000 (sync with `apps/math-sdk`). */
+export const JACKPOT_PROB = 1e-6;
 export const GROWTH_C = 0.08;
 export const GROWTH_K = 1.6;
 
@@ -15,6 +18,16 @@ export const PRE_SHOT_PROBS = {
   mole: 0.005,
   clubBreak: 0.005,
   selfHit: 0.005,
+} as const;
+
+/** In-flight hazard weights — must match `apps/math-sdk/src/golf_crash_math/events.py` / `round._pick_crash_cause`. */
+export const IN_FLIGHT_EVENT_PROBS = {
+  bird: 0.05,
+  wind: 0.05,
+  helicopter: 0.02,
+  plane: 0.01,
+  cart: 0.02,
+  fakeBoost: 0.02,
 } as const;
 
 export type Seed = {
@@ -25,7 +38,7 @@ export type Seed = {
 
 export type PreShotFail = "mole" | "clubBreak" | "selfHit";
 export type DecorativeKind = "bird" | "wind" | "helicopter" | "plane" | "cart";
-export type CrashCause = DecorativeKind | "timeout" | "fakeBoost";
+export type CrashCause = DecorativeKind | "landed" | "fakeBoost";
 export type RoundOutcomeKind = "preShotFail" | "holeInOne" | "crash";
 export type LandingZone = "fairway" | "sand" | "water" | "cart" | "hole";
 
@@ -135,8 +148,20 @@ const pickPreShotFail = (u: number): PreShotFail | null => {
 };
 
 const pickCrashCause = (u: number): CrashCause => {
-  const options: CrashCause[] = ["cart", "wind", "bird", "helicopter", "plane", "fakeBoost"];
-  return options[Math.min(options.length - 1, Math.floor(u * options.length))]!;
+  let cum = 0;
+  const weighted: [CrashCause, number][] = [
+    ["bird", IN_FLIGHT_EVENT_PROBS.bird],
+    ["wind", IN_FLIGHT_EVENT_PROBS.wind],
+    ["helicopter", IN_FLIGHT_EVENT_PROBS.helicopter],
+    ["plane", IN_FLIGHT_EVENT_PROBS.plane],
+    ["cart", IN_FLIGHT_EVENT_PROBS.cart],
+    ["fakeBoost", IN_FLIGHT_EVENT_PROBS.fakeBoost],
+  ];
+  for (const [cause, p] of weighted) {
+    cum += p;
+    if (u < cum) return cause;
+  }
+  return "landed";
 };
 
 const flightDuration = (u: number): number => 5 + u * 2;
@@ -218,7 +243,7 @@ export const generatePlan = async (seed: Seed): Promise<RoundPlan> => {
     };
   }
 
-  const crashMultiplier = crashFromUniform(rolls[2]!);
+  const crashMultiplier = Math.min(crashFromUniform(rolls[2]!), NORMAL_CRASH_MULTIPLIER_CAP);
   const crashAtSec = flightDuration(rolls[5]!);
   const crashCause = pickCrashCause(rolls[3]!);
   const landingZone = pickLandingZone(rolls[4]!, crashCause);

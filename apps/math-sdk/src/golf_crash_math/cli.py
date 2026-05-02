@@ -26,8 +26,8 @@ def main() -> None:
     table.add_argument(
         "--targets",
         type=str,
-        default="1.20,1.50,2.00,5.00,10.00",
-        help="Comma-separated cashout targets (e.g. 1.2,1.5,2,5,10)",
+        default="1.20,1.50,2.00",
+        help="Comma-separated cashout targets (default: three reference strategies)",
     )
 
     state = sub.add_parser("state", help="Print a Stake Engine-compatible round.state JSON")

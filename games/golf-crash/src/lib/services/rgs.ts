@@ -104,15 +104,17 @@ const normalizeLandingZone = (value: unknown): LandingZone | undefined =>
 const normalizeCrashCause = (value: unknown): CrashCause | null | undefined =>
   value === null
     ? null
-    : value === "bird" ||
-        value === "wind" ||
-        value === "helicopter" ||
-        value === "plane" ||
-        value === "cart" ||
-        value === "timeout" ||
-        value === "fakeBoost"
-      ? value
-      : undefined;
+    : value === "timeout"
+      ? "landed"
+      : value === "bird" ||
+          value === "wind" ||
+          value === "helicopter" ||
+          value === "plane" ||
+          value === "cart" ||
+          value === "landed" ||
+          value === "fakeBoost"
+        ? value
+        : undefined;
 
 const normalizePreShotFail = (value: unknown): PreShotFail | null | undefined =>
   value === null
@@ -130,7 +132,7 @@ const normalizeDecorativeEvents = (value: unknown): DecorativeEvent[] => {
     if (
       kind === null ||
       kind === undefined ||
-      kind === "timeout" ||
+      kind === "landed" ||
       kind === "fakeBoost" ||
       atSec === undefined
     ) {

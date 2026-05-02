@@ -8,6 +8,8 @@ import {
   type Texture,
   type Ticker,
 } from "pixi.js";
+import "@esotericsoftware/spine-pixi-v8";
+import { Spine } from "@esotericsoftware/spine-pixi-v8";
 import { assets } from "$app/paths";
 import { game, type VisualTimeMode } from "../stores/game.svelte.js";
 import {
@@ -46,7 +48,6 @@ import {
   getMobileScale,
   type LayeredBackgroundRefs,
 } from "./components/background/background-builder.js";
-import type { AmbientMobSpawn } from "./components/ambient/ambient-builder.js";
 import { buildCloudBackdrop } from "./components/background/cloud-backdrop.js";
 import { updateCamera as updateCameraController } from "./components/camera/camera-controller.js";
 import {
@@ -89,6 +90,10 @@ import {
   place,
   setSpriteVisualWidth,
 } from "./components/sprites/sprite-placement.js";
+import {
+  attachSheikhSwingComplete,
+  placeSheikhOnTee,
+} from "./components/sprites/spine-ambient.js";
 import {
   GOLF_CART_ALPHA_PLANNED_PRIMARY,
   GOLF_CART_ALPHA_PLANNED_SECONDARY,
@@ -145,7 +150,7 @@ export const bootstrapGame = (
   let activeVisualMode: VisualTimeMode | null = null;
   let ballSprite: Sprite | null = null;
   let fireBallSprite: Sprite | null = null;
-  let characterSprite: Sprite | null = null;
+  let characterSprite: Spine | null = null;
   let multiplierLabel: Text | null = null;
   let messageLabel: Text | null = null;
   let crashFlash: Graphics | null = null;
@@ -268,10 +273,14 @@ export const bootstrapGame = (
     ]).catch(() => undefined);
   };
 
+  /** Extra lateral motion on sky props while ball is airborne (idle feels calmer). */
+  const FLIGHT_AMBIENT_MOTION_BOOST = 1.3;
+
   const registerAmbientMotion = (
     node: Container,
     layerId: ObjectLayerId,
     index: number,
+    fixedGround = false,
   ): void => {
     const band = altitudeBandForLayer(layerId, getReferenceScale());
     const directionalKind = directionalSpriteKind(node);
@@ -304,23 +313,28 @@ export const bootstrapGame = (
         : -1;
     const speedByLayer =
       aiType === "cloud" ? 2 + (index % 4) : [18, 42, 54, 96, 38, 48][layerId]!;
-    const finalVx =
+    let finalVx =
       directionalKind === "plane"
         ? -Math.abs(speedByLayer)
         : direction * speedByLayer;
-    if (node instanceof Sprite && directionalKind) {
-      if (directionalKind === "plane") {
-        node.scale.x = Math.abs(node.scale.y);
-      } else {
-        faceSpriteDirection(
-          node,
-          direction,
-          1,
-          directionalKind === "helicopter" ||
-            directionalKind === "bird" ||
-            directionalKind === "duck",
-        );
-      }
+    if (directionalKind === "cart" && fixedGround) finalVx = 0;
+    if (node instanceof Sprite && directionalKind === "plane") {
+      node.scale.x = Math.abs(node.scale.y);
+    } else if (
+      directionalKind &&
+      directionalKind !== "plane" &&
+      (node instanceof Sprite ||
+        directionalKind === "bird" ||
+        directionalKind === "duck")
+    ) {
+      faceSpriteDirection(
+        node,
+        direction,
+        1,
+        directionalKind === "helicopter" ||
+          directionalKind === "bird" ||
+          directionalKind === "duck",
+      );
     }
     const groundedY = isGroundCart ? hillSurfaceY(node.x) : node.y;
     if (isGroundCart) node.y = groundedY;
@@ -359,19 +373,14 @@ export const bootstrapGame = (
     alias: string,
     index: number,
   ): void => {
-    const frames =
-      alias === "bird"
-        ? [Assets.get("bird"), Assets.get("bird2")]
-        : alias === "duck" || alias === "duck2"
-          ? [Assets.get("duck"), Assets.get("duck2")]
-          : null;
-    if (!frames) return;
+    if (alias !== "bird") return;
+    const frames = [Assets.get("bird"), Assets.get("bird2")] as Texture[];
     flipbooks.push({
       sprite,
       frames,
-      frameMs: alias === "bird" ? 120 : 150,
+      frameMs: 120,
       phase: index * 57,
-      visualWidth: alias === "bird" ? 150 : 155,
+      visualWidth: 150,
     });
   };
 
@@ -464,7 +473,7 @@ export const bootstrapGame = (
 
   const isCurrentPlanZeroCrash = (): boolean =>
     currentPlan?.landingZone === "water" ||
-    currentPlan?.crashCause === "timeout" ||
+    currentPlan?.crashCause === "landed" ||
     currentPlan?.crashCause === "fakeBoost";
 
   const primaryImpactProgress = (): number => {
@@ -723,7 +732,7 @@ export const bootstrapGame = (
     const impactOffsetY =
       kind === "cart"
         ? GOLF_CART_IMPACT_OFFSET_Y_PX
-        : kind === "timeout" || kind === "fakeBoost"
+        : kind === "fakeBoost"
           ? 0
           : 36;
 
@@ -844,8 +853,12 @@ export const bootstrapGame = (
   };
 
   const updateAmbientDecor = (dt: number, now: number): void => {
+    const ambientMotionBoost =
+      game.phase === "flight" || game.phase === "crashed"
+        ? FLIGHT_AMBIENT_MOTION_BOOST
+        : 1;
     for (const motion of ambientMotions) {
-      motion.baseX += motion.vx * dt;
+      motion.baseX += motion.vx * ambientMotionBoost * dt;
       if (motion.aiType === "plane") {
         if (motion.baseX > motion.wrapMaxX) motion.baseX = motion.wrapMinX;
         if (motion.baseX < motion.wrapMinX) motion.baseX = motion.wrapMaxX;
@@ -906,7 +919,7 @@ export const bootstrapGame = (
         (motion.layerId === 0 || motion.kind === "cart")
       ) {
         faceSpriteDirection(motion.node, motion.vx);
-      } else if (motion.node instanceof Sprite && motion.aiType !== "cloud") {
+      } else if (motion.aiType !== "cloud") {
         const vxForFacing =
           motion.aiType === "patrol"
             ? effectiveAmbientPatrolVx(
@@ -921,7 +934,11 @@ export const bootstrapGame = (
           const originalDirection = 1;
           motion.node.scale.x =
             Math.abs(motion.node.scale.y) * originalDirection;
-        } else {
+        } else if (
+          motion.node instanceof Sprite ||
+          motion.kind === "bird" ||
+          motion.kind === "duck"
+        ) {
           const invertFacing =
             motion.kind === "helicopter" ||
             motion.kind === "bird" ||
@@ -945,6 +962,7 @@ export const bootstrapGame = (
       nextFakeBoostTeaseAt = 0;
       if (currentPlan && !hazardsDrawnForFlight)
         drawPlannedHazards(currentPlan, true);
+      characterSprite?.state.setAnimation(0, "swing", false);
     }
     if (phase === "runToBall" && lastPhase !== "runToBall") {
       runStartedAt = now;
@@ -987,6 +1005,7 @@ export const bootstrapGame = (
       fireBallSprite.visible = false;
       collision = null;
       crashedSettled = false;
+      characterSprite?.state.setAnimation(0, "idle", true);
     }
     if (phase === "landed" && lastPhase !== "landed") {
       goldFlashUntil = now + 900;
@@ -1282,13 +1301,13 @@ export const bootstrapGame = (
     }
     const sideMul = ballX > currentTeeX ? 1 : -1;
     const ballKnockVx =
-      cause === "timeout" || cause === "fakeBoost"
+      cause === "landed" || cause === "fakeBoost"
         ? (Math.random() - 0.5) * 100
         : sideMul * (cause === "cart" ? 380 : 260);
     const ballKnockVy =
       cause === "cart"
         ? -200
-        : cause === "timeout" || cause === "fakeBoost"
+        : cause === "landed" || cause === "fakeBoost"
           ? 260
           : 320;
 
@@ -1324,7 +1343,7 @@ export const bootstrapGame = (
       messageUntil = now + 1400;
     } else if (cause === "wind") {
       addImpactRing(x, y, now, 0x9fd6ff);
-    } else if (cause === "timeout") {
+    } else if (cause === "landed") {
       // No ring — ball just falls quietly.
     } else if (cause === "fakeBoost") {
       // Massive flare-out, then dark smoke as the "bonus" fizzles.
@@ -1915,20 +1934,26 @@ export const bootstrapGame = (
     worldObjectLayer.addChild(ambientPack.container);
     let ambientIdx = 0;
     for (const s of ambientPack.spawns) {
-      registerAmbientMotion(s.node, s.layerId, ambientIdx);
-      if (s.flipbookAlias)
-        registerWingFlap(s.node, s.flipbookAlias, ambientIdx);
+      registerAmbientMotion(
+        s.node,
+        s.layerId,
+        ambientIdx,
+        s.fixedGround ?? false,
+      );
       ambientIdx += 1;
     }
 
-    characterSprite = new Sprite(Assets.get("sheikh"));
-    place(
+    characterSprite = Spine.from({
+      skeleton: "spineSheikhJson",
+      atlas: "spineSheikhAtlas",
+    });
+    placeSheikhOnTee(
       characterSprite,
       mapLayout.start.characterX,
       mapLayout.start.characterY,
       0.42,
-      0.5,
     );
+    attachSheikhSwingComplete(characterSprite);
     playerLayer.addChild(characterSprite);
 
     ballSprite = new Sprite(Assets.get("ball"));

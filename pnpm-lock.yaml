@@ -20,6 +20,9 @@ importers:
 
   games/golf-crash:
     dependencies:
+      '@esotericsoftware/spine-pixi-v8':
+        specifier: ^4.2.114
+        version: 4.2.114(pixi.js@8.18.1)
       '@golf-crash/components-pixi':
         specifier: workspace:*
         version: link:../../packages/components-pixi
@@ -39,7 +42,7 @@ importers:
         specifier: workspace:*
         version: link:../../packages/utils-shared
       pixi.js:
-        specifier: ^8.5.0
+        specifier: ^8.16.0
         version: 8.18.1
       xstate:
         specifier: ^5.18.0
@@ -250,6 +253,17 @@ packages:
     engines: {node: '>=12'}
     cpu: [x64]
     os: [win32]
+
+  '@esotericsoftware/spine-canvas@4.2.114':
+    resolution: {integrity: sha512-S3dCXYfp5188n9JXLQQWBHfDxmBLWZlyEBZ2SXm3EIq6CSOzs8U+BT0iMCJOe1qRcNdysOxbCsOJsGOtIknjuw==}
+
+  '@esotericsoftware/spine-core@4.2.114':
+    resolution: {integrity: sha512-YB5DFjRXbvS6pusY1XNPFurgp8mGsS9ii7lqpIzi3LgNQt8H6+br8l/zqOzHjeY38aAXQfaDdvUNOES2KHrOPg==}
+
+  '@esotericsoftware/spine-pixi-v8@4.2.114':
+    resolution: {integrity: sha512-SIzhScVNqGKe5C8ProlI7Cb1uquO78T4jp8gXQf/EG+Cpm+4+yUZ7z2LIE50n7vbdbXT23gKXkNh/y4gevk7/g==}
+    peerDependencies:
+      pixi.js: ^8.16.0
 
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
@@ -793,6 +807,17 @@ snapshots:
 
   '@esbuild/win32-x64@0.21.5':
     optional: true
+
+  '@esotericsoftware/spine-canvas@4.2.114':
+    dependencies:
+      '@esotericsoftware/spine-core': 4.2.114
+
+  '@esotericsoftware/spine-core@4.2.114': {}
+
+  '@esotericsoftware/spine-pixi-v8@4.2.114(pixi.js@8.18.1)':
+    dependencies:
+      '@esotericsoftware/spine-canvas': 4.2.114
+      pixi.js: 8.18.1
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:

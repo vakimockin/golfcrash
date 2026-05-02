@@ -1,4 +1,8 @@
 import { Assets, Container, Sprite } from "pixi.js";
+import {
+  AMBIENT_SPINE_BIRD_LABEL,
+  AMBIENT_SPINE_DUCK_LABEL,
+} from "./spine-ambient.js";
 
 /** Horizontal speed component for patrol ambient: X = baseX + ax*sin(now/ms/1300 + phase). */
 export const PATROL_X_WOBBLE_MS = 1300;
@@ -15,7 +19,7 @@ export const effectiveAmbientPatrolVx = (
 
 /** Movement vs mirror: set `invert` when PNG nose points left (+vx needs flip relative to baseline). */
 export const faceSpriteDirection = (
-  sprite: Sprite,
+  sprite: Container,
   vx: number,
   smoothing = 0.5,
   invert = false,
@@ -59,6 +63,8 @@ export const isSpriteAlias = (sprite: Sprite, aliases: string[]): boolean =>
 export const directionalSpriteKind = (
   node: Container,
 ): "plane" | "helicopter" | "bird" | "duck" | "cart" | null => {
+  if (node.label === AMBIENT_SPINE_BIRD_LABEL) return "bird";
+  if (node.label === AMBIENT_SPINE_DUCK_LABEL) return "duck";
   if (!(node instanceof Sprite)) return null;
   if (isSpriteAlias(node, ["plane", "plane2", "plane3"])) return "plane";
   if (isSpriteAlias(node, ["helicopter", "helicopter2"])) return "helicopter";

@@ -15,7 +15,6 @@ export const hazardAliasFor = (
       return "helicopter2";
     case "cart":
       return GOLF_CART_ASSET_ALIAS;
-    case "timeout":
     case "fakeBoost":
       return "ufo";
     default:
@@ -34,7 +33,7 @@ export const layerForKind = (
         ? 2
         : kind === "plane"
           ? 3
-          : kind === "timeout" || kind === "fakeBoost"
+          : kind === "fakeBoost"
             ? 5
             : 4;
 
@@ -68,7 +67,6 @@ export const hazardVelocity = (
       return -55 * speedMul;
     case "plane":
       return -120 * speedMul;
-    case "timeout":
     case "fakeBoost":
       return -35 * speedMul;
     case "wind":

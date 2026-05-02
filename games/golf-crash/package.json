@@ -15,13 +15,14 @@
     "lint": "eslint ."
   },
   "dependencies": {
+    "@esotericsoftware/spine-pixi-v8": "^4.2.114",
     "@golf-crash/components-pixi": "workspace:*",
-    "@golf-crash/components-ui-pixi": "workspace:*",
     "@golf-crash/components-ui-html": "workspace:*",
+    "@golf-crash/components-ui-pixi": "workspace:*",
     "@golf-crash/pixi-svelte": "workspace:*",
     "@golf-crash/utils-layout": "workspace:*",
     "@golf-crash/utils-shared": "workspace:*",
-    "pixi.js": "^8.5.0",
+    "pixi.js": "^8.16.0",
     "xstate": "^5.18.0"
   },
   "devDependencies": {

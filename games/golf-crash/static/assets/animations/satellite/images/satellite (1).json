@@ -1,0 +1,140 @@
+{ "skeleton": { "images": "/d/playt/" },
+"bones": [
+	{ "name": "root" }
+],
+"slots": [
+	{ "name": "wind_back_1", "bone": "root", "attachment": "wind_back_1" },
+	{ "name": "wind_back_1_light", "bone": "root", "attachment": "wind_back_1_light", "blend": "screen" },
+	{ "name": "wind_back_1_blik", "bone": "root", "attachment": "wind_back_1_blik", "blend": "screen" },
+	{ "name": "wind_back_2", "bone": "root", "attachment": "wind_back_2" },
+	{ "name": "wind_back_2_light", "bone": "root", "attachment": "wind_back_2_light", "blend": "screen" },
+	{ "name": "wind_back_2_blik", "bone": "root", "attachment": "wind_back_2_blik", "blend": "screen" },
+	{ "name": "mount_back", "bone": "root", "attachment": "mount_back" },
+	{ "name": "satellite_fill", "bone": "root", "attachment": "satellite_fill" },
+	{ "name": "spots_1", "bone": "root", "attachment": "spots_1" },
+	{ "name": "spot_2", "bone": "root", "attachment": "spot_2" },
+	{ "name": "satellite_light", "bone": "root", "attachment": "satellite_light", "blend": "screen" },
+	{ "name": "satellite_detail_1", "bone": "root", "attachment": "satellite_detail_1" },
+	{ "name": "satellite_detail_2", "bone": "root", "attachment": "satellite_detail_2" },
+	{ "name": "satellite_blik", "bone": "root", "attachment": "satellite_blik", "blend": "screen" },
+	{ "name": "satellite_line", "bone": "root", "attachment": "satellite_line" },
+	{ "name": "antenna_shadow", "bone": "root", "attachment": "antenna_shadow", "blend": "multiply" },
+	{ "name": "antenna_fill", "bone": "root", "attachment": "antenna_fill" },
+	{ "name": "antenna_light_1", "bone": "root", "attachment": "antenna_light_1" },
+	{ "name": "antenna_light_2", "bone": "root", "attachment": "antenna_light_2" },
+	{ "name": "antenna_light_3", "bone": "root", "attachment": "antenna_light_3" },
+	{ "name": "antenna_light_4", "bone": "root", "attachment": "antenna_light_4" },
+	{ "name": "antenna_blik_1", "bone": "root", "attachment": "antenna_blik_1" },
+	{ "name": "antenna_blik_2", "bone": "root", "attachment": "antenna_blik_2" },
+	{ "name": "antenna_line", "bone": "root", "attachment": "antenna_line" },
+	{ "name": "mout_front", "bone": "root", "attachment": "mout_front" },
+	{ "name": "blick", "bone": "root", "attachment": "blick" },
+	{ "name": "wing_front_1", "bone": "root", "attachment": "wing_front_1" },
+	{ "name": "wind_front_1_light", "bone": "root", "attachment": "wind_front_1_light", "blend": "screen" },
+	{ "name": "wind_front_1_blik", "bone": "root", "attachment": "wind_front_1_blik", "blend": "screen" },
+	{ "name": "wind_front_2", "bone": "root", "attachment": "wind_front_2" },
+	{ "name": "wind_front_2_light", "bone": "root", "attachment": "wind_front_2_light", "blend": "screen" },
+	{ "name": "wind_front_2_blik", "bone": "root", "attachment": "wind_front_2_blik", "blend": "screen" }
+],
+"skins": {
+	"default": {
+		"wind_back_1": {
+			"wind_back_1": { "x": 466, "y": -161, "width": 238, "height": 136 }
+		},
+		"wind_back_1_light": {
+			"wind_back_1_light": { "x": 503.5, "y": -134, "width": 147, "height": 68 }
+		},
+		"wind_back_1_blik": {
+			"wind_back_1_blik": { "x": 467.5, "y": -152, "width": 191, "height": 102 }
+		},
+		"wind_back_2": {
+			"wind_back_2": { "x": 466, "y": -152.5, "width": 238, "height": 159 }
+		},
+		"wind_back_2_light": {
+			"wind_back_2_light": { "x": 498.5, "y": -122, "width": 145, "height": 80 }
+		},
+		"wind_back_2_blik": {
+			"wind_back_2_blik": { "x": 464.5, "y": -146.5, "width": 197, "height": 125 }
+		},
+		"mount_back": {
+			"mount_back": { "x": 363, "y": -214, "width": 62, "height": 40 }
+		},
+		"satellite_fill": {
+			"satellite_fill": { "x": 338.5, "y": -256.5, "width": 243, "height": 203 }
+		},
+		"spots_1": {
+			"spots_1": { "x": 318.5, "y": -231, "width": 169, "height": 58 }
+		},
+		"spot_2": {
+			"spot_2": { "x": 438, "y": -284, "width": 42, "height": 38 }
+		},
+		"satellite_light": {
+			"satellite_light": { "x": 328, "y": -215.5, "width": 184, "height": 125 }
+		},
+		"satellite_detail_1": {
+			"satellite_detail_1": { "x": 286, "y": -200, "width": 92, "height": 44 }
+		},
+		"satellite_detail_2": {
+			"satellite_detail_2": { "x": 365, "y": -319, "width": 84, "height": 78 }
+		},
+		"satellite_blik": {
+			"satellite_blik": { "x": 324, "y": -211.5, "width": 122, "height": 77 }
+		},
+		"satellite_line": {
+			"satellite_line": { "x": 339, "y": -256.5, "width": 248, "height": 207 }
+		},
+		"antenna_shadow": {
+			"antenna_shadow": { "x": 411, "y": -307.5, "width": 56, "height": 61 }
+		},
+		"antenna_fill": {
+			"antenna_fill": { "x": 457.5, "y": -323, "width": 125, "height": 90 }
+		},
+		"antenna_light_1": {
+			"antenna_light_1": { "x": 417.5, "y": -290.5, "width": 39, "height": 25 }
+		},
+		"antenna_light_2": {
+			"antenna_light_2": { "x": 421, "y": -300.5, "width": 22, "height": 15 }
+		},
+		"antenna_light_3": {
+			"antenna_light_3": { "x": 505, "y": -353.5, "width": 26, "height": 31 }
+		},
+		"antenna_light_4": {
+			"antenna_light_4": { "x": 455.5, "y": -329, "width": 51, "height": 34 }
+		},
+		"antenna_blik_1": {
+			"antenna_blik_1": { "x": 453, "y": -327.5, "width": 46, "height": 31 }
+		},
+		"antenna_blik_2": {
+			"antenna_blik_2": { "x": 417.5, "y": -291, "width": 37, "height": 18 }
+		},
+		"antenna_line": {
+			"antenna_line": { "x": 457.5, "y": -323, "width": 129, "height": 94 }
+		},
+		"mout_front": {
+			"mout_front": { "x": 254.5, "y": -281, "width": 53, "height": 40 }
+		},
+		"blick": {
+			"blick": { "x": 255.5, "y": -281, "width": 31, "height": 26 }
+		},
+		"wing_front_1": {
+			"wing_front_1": { "x": 170.5, "y": -348.5, "width": 257, "height": 197 }
+		},
+		"wind_front_1_light": {
+			"wind_front_1_light": { "x": 134.5, "y": -372, "width": 165, "height": 114 }
+		},
+		"wind_front_1_blik": {
+			"wind_front_1_blik": { "x": 171, "y": -337, "width": 218, "height": 148 }
+		},
+		"wind_front_2": {
+			"wind_front_2": { "x": 162.5, "y": -332.5, "width": 269, "height": 167 }
+		},
+		"wind_front_2_light": {
+			"wind_front_2_light": { "x": 124, "y": -346.5, "width": 166, "height": 91 }
+		},
+		"wind_front_2_blik": {
+			"wind_front_2_blik": { "x": 158, "y": -323.5, "width": 230, "height": 115 }
+		}
+	}
+},
+"animations": { "animation": {} }
+}

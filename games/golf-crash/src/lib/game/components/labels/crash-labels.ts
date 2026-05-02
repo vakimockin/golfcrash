@@ -12,6 +12,6 @@ export const CRASH_CAUSE_LABEL: Record<CrashCause, string> = {
   helicopter: "HELICOPTER!",
   plane: "PLANE!",
   cart: "RUNAWAY CART!",
-  timeout: "OUT OF GAS!",
+  landed: "LANDED!",
   fakeBoost: "FAKE BOOST!",
 };

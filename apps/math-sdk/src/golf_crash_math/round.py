@@ -3,7 +3,9 @@
 A round resolves to exactly one outcome:
   * pre_shot_fail — the player never gets to swing (mole, club break, self hit).
   * hole_in_one — ball lands in the hole at JACKPOT_MULT (auto-win).
-  * crash — multiplier rises to crash_multiplier, attributed to a cause event.
+  * crash — multiplier rises in flight to `crash_multiplier` at `crash_at_sec` (capped at
+    `NORMAL_CRASH_MULTIPLIER_CAP` for ordinary crashes so jackpot hole-in-one stays the top tier),
+    attributed to a crash cause (named hazard, `landed` = ball touches ground, or `fakeBoost`).
 
 Decorative events are pure visual flavor that fire mid-flight without changing
 the outcome. The Bustabit-style formula with HOUSE_EDGE is used for the regular
@@ -20,10 +22,10 @@ from typing import Any, Literal
 from .events import DEFAULT_EVENTS, EventTable
 from .rng import Seed, floats, server_seed_hash
 
-# House edge on the Bustabit crash distribution. Calibrated for ~96% total RTP
-# once jackpot and pre-shot-fail outcomes are accounted for (see test
-# `test_simulate_rtp_in_reasonable_range` and rtp.simulate_table).
-HOUSE_EDGE = 0.06
+# House edge on the Bustabit crash distribution. Tuned so `rtp.simulate` stays
+# in a ~96–97% RTP band for cashout targets x1.2 / x1.5 / x2 under current
+# pre-shot and jackpot parameters (see tests + `rtp.simulate_table`).
+HOUSE_EDGE = 0.02
 
 # Caps the crash multiplier so a freak roll cannot exceed the §1.1 Max Win
 # (50 000–100 000X). 100 000 is the cap; bonus-round payouts can extend
@@ -31,18 +33,22 @@ HOUSE_EDGE = 0.06
 # distribution — pending product decision per §2.2).
 MAX_CRASH = 100_000.0
 
-# Hole-in-one jackpot per §2.1 Phase 5: the rare "near-miss → ball falls in"
-# moment that pays the §1.1 maximum lunka multiplier of 2000X. Probability
-# is calibrated so jackpot EV (= 2000 × p) stays < 5% of total RTP, leaving
-# the rest of the budget to the standard crash distribution.
+# Ordinary crash rounds: clamp sampled multiplier — rare hole-in-one at JACKPOT_MULT stays special.
+# Calibrated (~500k deterministic nonces): «ride to end» / Strategy B RTP ≈96% at HOUSE_EDGE 0.02
+# (`casino_profit_report_uk_20m.py` rules: fairway/sand/cart, not zero-crash).
+NORMAL_CRASH_MULTIPLIER_CAP = 1000.0
+
+# Hole-in-one: rare "ball in the cup" auto-win at JACKPOT_MULT. Keep p very low
+# so it is a true long-tail event; total RTP is dominated by the crash path.
 JACKPOT_MULT = 2000.0
-JACKPOT_PROB = 0.00002  # ≈ 1 in 50 000 spins
+# P(hole-in-one | survived pre-shot) — order ~1 in 1_000_000.
+JACKPOT_PROB = 1e-6
 
 GROWTH_C = 0.08
 GROWTH_K = 1.6
 
 PreShotFail = Literal["mole", "club_break", "self_hit"]
-CrashCause = Literal["bird", "wind", "helicopter", "plane", "cart", "timeout", "fakeBoost"]
+CrashCause = Literal["bird", "wind", "helicopter", "plane", "cart", "landed", "fakeBoost"]
 DecorativeKind = Literal["bird", "wind", "helicopter", "plane", "cart"]
 Outcome = Literal["pre_shot_fail", "hole_in_one", "crash"]
 LandingZone = Literal["fairway", "sand", "water", "cart", "hole"]
@@ -116,7 +122,11 @@ class RoundResult:
         }
 
 
-def crash_from_uniform(u: float, house_edge: float = HOUSE_EDGE) -> float:
+def crash_from_uniform(u: float, house_edge: float | None = None) -> float:
+    # Resolve at call time so certification runs / calibration can tweak `HOUSE_EDGE`
+    # without stale default-argument captures.
+    if house_edge is None:
+        house_edge = HOUSE_EDGE
     if not 0.0 <= u < 1.0:
         raise ValueError(f"u must be in [0,1), got {u}")
     if u < house_edge:
@@ -150,13 +160,11 @@ def _pick_pre_shot_fail(u: float, table: EventTable) -> PreShotFail | None:
 
 
 def _pick_crash_cause(u: float, table: EventTable) -> CrashCause:
-    """Pick a crash cause weighted by the in-flight event probabilities in
-    `events.py`. If none of the event probabilities fire, the crash falls
-    back to "timeout" (natural Bustabit crash with no narrative cause).
+    """Pick a crash cause weighted by in-flight event probabilities in `events.py`.
 
-    The cumulative weights typically sum to ~17%, so most rounds get the
-    plain "timeout" label, which matches the player experience: a crash
-    can happen at any time without a specific obstacle on screen.
+    If none of the named hazards roll, the outcome is ``landed``: the ball completes
+    its arc and touches the ground/fairway — multiplier growth stops at contact
+    time (``crash_at_sec``); there is no separate "timeout obstacle" in the book.
     """
     cum = 0.0
     weighted: list[tuple[CrashCause, float]] = [
@@ -171,7 +179,7 @@ def _pick_crash_cause(u: float, table: EventTable) -> CrashCause:
         cum += prob
         if u < cum:
             return cause
-    return "timeout"
+    return "landed"
 
 
 def _flight_duration(u: float) -> float:
@@ -261,7 +269,7 @@ def generate_round(seed: Seed, table: EventTable = DEFAULT_EVENTS) -> RoundResul
             near_miss=True,
         )
 
-    crash_mult = crash_from_uniform(rolls[2])
+    crash_mult = min(crash_from_uniform(rolls[2]), NORMAL_CRASH_MULTIPLIER_CAP)
     crash_t = _flight_duration(rolls[5])
     cause = _pick_crash_cause(rolls[3], table)
     landing_zone = _pick_landing_zone(rolls[4], cause)

@@ -2,15 +2,12 @@
 
 `simulate` measures the realised RTP at a single cashout target by playing
 N deterministic rounds with the Provably Fair RNG. `simulate_table` sweeps
-multiple targets so a tester can confirm the §1.2 "RTP 95-97%" band holds
-across the strategies players actually use (low-target safety play vs.
-high-target risk play).
+the three reference strategies (cashout at x1.2, x1.5, x2) so certification
+can confirm the ~96–97% band holds across low / mid / higher targets.
 
 The Bustabit-style payout invariant means EV is independent of the cashout
-target in the no-jackpot, no-pre-shot-fail case. So the per-target RTP
-table really only varies because of the rare jackpot (always pays 2000X)
-and the pre-shot fail rate. The table is still useful: it confirms the
-math holds across targets and surfaces variance bands.
+target in the no-jackpot, no-pre-shot-fail case; small spread between rows
+comes from discretised multipliers, the rare jackpot, and pre-shot mass.
 """
 
 from __future__ import annotations
@@ -79,7 +76,7 @@ def simulate(
 
 def simulate_table(
     rounds: int = 200_000,
-    targets: tuple[float, ...] = (1.20, 1.50, 2.00, 5.00, 10.00),
+    targets: tuple[float, ...] = (1.20, 1.50, 2.00),
     server_seed: str = "dev-server",
     client_seed: str = "dev-client",
 ) -> list[dict[str, float]]:

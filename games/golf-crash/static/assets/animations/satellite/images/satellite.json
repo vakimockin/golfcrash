@@ -1,0 +1,28 @@
+{ "skeleton": { "images": "/d/playt/golf/" },
+"bones": [
+	{ "name": "root" }
+],
+"slots": [
+	{ "name": "wing_back", "bone": "root", "attachment": "wing_back" },
+	{ "name": "satellite", "bone": "root", "attachment": "satellite" },
+	{ "name": "antenna", "bone": "root", "attachment": "antenna" },
+	{ "name": "wing_front", "bone": "root", "attachment": "wing_front" }
+],
+"skins": {
+	"default": {
+		"wing_back": {
+			"wing_back": { "x": 462, "y": -155.5, "width": 258, "height": 169 }
+		},
+		"satellite": {
+			"satellite": { "x": 335.5, "y": -273.5, "width": 255, "height": 211 }
+		},
+		"antenna": {
+			"antenna": { "x": 447, "y": -344, "width": 134, "height": 98 }
+		},
+		"wing_front": {
+			"wing_front": { "x": 149, "y": -367, "width": 274, "height": 210 }
+		}
+	}
+},
+"animations": { "animation": {} }
+}
