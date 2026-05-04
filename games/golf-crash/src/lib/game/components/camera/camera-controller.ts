@@ -1,5 +1,11 @@
 import type { Container, Sprite } from "pixi.js";
 import type { TerrainLayers } from "../core/world-types.js";
+import {
+  CAMERA_PAN_RATE_CRASHED,
+  CAMERA_PAN_RATE_DEFAULT,
+  CAMERA_PAN_RATE_FLIGHT_X,
+  CAMERA_PAN_RATE_FLIGHT_Y,
+} from "../constants/world-metrics.js";
 
 type CameraStateArgs = {
   world: Container;
@@ -39,24 +45,44 @@ type CameraStateArgs = {
 export const computeCameraT = (mult: number): number =>
   Math.min(1, Math.log(Math.max(1, mult)) / Math.log(10));
 
+/**
+ * Scale = canvasH / visibleWorldHeightPx. Smaller visibleHeight ⇒ bigger
+ * scale ⇒ tighter zoom-IN; larger visibleHeight ⇒ wider zoom-OUT.
+ *
+ * § ТЗ: Zoom-IN during `flight`; zoom-OUT to panorama once the ball is on the
+ *   ground — `landed` (including jackpot near-miss), `runToBall`, `crashed`,
+ *   `idle`, etc.
+ *
+ * Returned value is the TARGET; bootstrap separately lerps `displayScale`
+ * toward it via `CAMERA_SCALE_SMOOTH_RATE`, so phase changes ramp smoothly.
+ */
 export const computeScale = (
   t: number,
   canvasW: number,
   canvasH: number,
   phase: string,
-  isJackpot: boolean,
+  _isJackpot: boolean,
 ): number => {
   const aspect = canvasW / canvasH;
-  /** Wider FOV so the course reads as a large world, not a tight band (~+20%). */
-  const visibleGroundHeight = aspect > 1 ? 1680 : 1920;
-  /** Slightly wider base FOV in flight; zoom mul from bootstrap sells the punch-in. */
-  const visibleFlightHeight = aspect > 1 ? 1760 : 1700;
-  const visibleCrashedHeight = aspect > 1 ? 2160 : 2880;
-  const zoomIn = canvasH / visibleGroundHeight;
-  const zoomOut = canvasH / visibleFlightHeight;
-  if (phase === "flight" || (phase === "landed" && isJackpot)) return zoomOut;
-  if (phase === "crashed") return canvasH / visibleCrashedHeight;
-  return zoomIn - t * (zoomIn - zoomOut);
+  // Wide field-of-view: visible vertical span when zoomed OUT (idle, run,
+  // landed, …). The course reads as a big landscape; ball + flag both fit.
+  const visibleHeightZoomedOut = aspect > 1 ? 2200 : 2600;
+  // Tight FOV during flight: ~1.3× closer than zoomed-out, so the ball
+  // dominates while still leaving room for camera-lag (ball escapes right).
+  const visibleHeightZoomedIn = aspect > 1 ? 1700 : 2000;
+  // Crashed view: wider than zoomed-in, narrower than full zoom-out, so
+  // the impact moment reads with a touch of context.
+  const visibleHeightCrashed = aspect > 1 ? 2400 : 2800;
+
+  const zoomedOut = canvasH / visibleHeightZoomedOut;
+  const zoomedIn = canvasH / visibleHeightZoomedIn;
+
+  if (phase === "flight") return zoomedIn;
+  if (phase === "crashed") return canvasH / visibleHeightCrashed;
+  // Idle / preShot / runToBall / landed (non-jackpot) / cashOut / lose:
+  // start zoomed OUT, gradually punch in as the multiplier grows for the
+  // (rare) case we want a tease before flight.
+  return zoomedOut + t * (zoomedIn - zoomedOut);
 };
 
 export const updateCamera = ({
@@ -130,6 +156,8 @@ export const updateCamera = ({
   const followFlight = phase === "flight" && fireBallSprite !== null;
   const followRun = phase === "runToBall" && characterSprite !== null;
   const followLanded = phase === "landed" && !isJackpot;
+  const followJackpotLanded =
+    phase === "landed" && isJackpot && fireBallSprite !== null;
   const followCrashed = phase === "crashed" && fireBallSprite !== null;
   const followRest =
     phase === "idle" ||
@@ -137,7 +165,12 @@ export const updateCamera = ({
     phase === "cashOut" ||
     phase === "lose";
   const shouldFollow =
-    followFlight || followRun || followLanded || followCrashed || followRest;
+    followFlight ||
+    followRun ||
+    followLanded ||
+    followJackpotLanded ||
+    followCrashed ||
+    followRest;
   const ballFx = followFlight || followCrashed;
   const aim = followFlight && flightLookAt ? flightLookAt : null;
 
@@ -145,20 +178,24 @@ export const updateCamera = ({
     ? (aim?.x ?? fireBallSprite!.x)
     : followCrashed
       ? fireBallSprite!.x
-      : followRun
-        ? characterSprite!.x
-        : followLanded || followRest
-          ? currentTeeX
-          : ballStartX;
+      : followJackpotLanded
+        ? fireBallSprite!.x
+        : followRun
+          ? characterSprite!.x
+          : followLanded || followRest
+            ? currentTeeX
+            : ballStartX;
   const targetY = followFlight
     ? (aim?.y ?? fireBallSprite!.y)
     : followCrashed
       ? fireBallSprite!.y
-      : followRun
-        ? characterSprite!.y
-        : followLanded || followRest
-          ? currentTeeY
-          : ballStartY;
+      : followJackpotLanded
+        ? fireBallSprite!.y
+        : followRun
+          ? characterSprite!.y
+          : followLanded || followRest
+            ? currentTeeY
+            : ballStartY;
 
   const aspect = canvasW / canvasH;
   const idleFocusXValue = aspect > 1 ? idleFocusX : 0.5;
@@ -171,7 +208,30 @@ export const updateCamera = ({
   const centeredCamY =
     focusY - targetY * scale - (ballFx ? bottomUiPaddingPx : 0);
 
+  // Capture LAST frame's transform BEFORE we overwrite scale — these are
+  // the basis for both the lerp anchor AND the scale-change compensation.
+  const prevScaleX = world.scale.x;
+  const prevScaleY = world.scale.y;
+  const prevWorldX = world.x;
+  const prevWorldY = world.y;
+
+  // Where is the focus point CURRENTLY visible on canvas? (under prev scale
+  // and prev pan). We use this to keep that exact canvas position stable
+  // when `scale` changes — which is what kills the "impact-zoom flick"
+  // where a sudden 1.22× punch-in used to teleport the ball vertically.
+  const focusCanvasX = targetX * prevScaleX + prevWorldX;
+  const focusCanvasY = targetY * prevScaleY + prevWorldY;
+
   world.scale.set(scale);
+
+  // Anchor = where world.x/y would be IF the focus stayed put under the new
+  // scale. Lerping from this anchor (instead of plain `prevWorldX/Y`) means
+  // a scale change alone produces zero canvas displacement of the ball;
+  // the only motion comes from the actual target offset. With the lerp on
+  // top, scale changes are smooth and ball-relative.
+  const anchorWorldX = focusCanvasX - targetX * scale;
+  const anchorWorldY = focusCanvasY - targetY * scale;
+
   const cameraFocusX = ballFx
     ? canvasW * flightFocusX
     : shouldFollow
@@ -179,14 +239,76 @@ export const updateCamera = ({
       : canvasW * 0.5;
   const rawX = cameraFocusX - targetX * scale;
   const minX = canvasW - worldW * scale;
-  world.x =
+  // World narrower than canvas → pillarbox-center horizontally.
+  const targetWorldX =
     worldW * scale <= canvasW
       ? (canvasW - worldW * scale) / 2
       : Math.max(minX, Math.min(0, rawX));
 
-  const rawY = ballFx ? Math.max(groundCamY, centeredCamY) : groundCamY;
+  const rawY =
+    ballFx || followJackpotLanded
+      ? Math.max(groundCamY, centeredCamY)
+      : groundCamY;
   const minY = canvasH - worldH * scale;
-  world.y = Math.max(minY, rawY);
+  const targetWorldY = Math.max(minY, rawY);
+
+  /**
+   * Pan-smoothing rate (1/s exponential). Phase-specific so the same lerp
+   * code creates two distinct feels:
+   *   - `flight`: low X-rate → ball outruns the camera (Aviator-style
+   *     "bullet shooting away" illusion); moderate Y-rate so the parabola
+   *     reads smoothly without trailing the apex.
+   *   - `crashed`: medium → impact lingers without snapping.
+   *   - everything else (idle / preShot / runToBall / landed / cashOut /
+   *     lose): snappy default → camera is glued to the player.
+   */
+  const isFlight = phase === "flight";
+  const isCrashed = phase === "crashed";
+  const isJackpotLanded = phase === "landed" && isJackpot;
+  const panRateX = isFlight
+    ? CAMERA_PAN_RATE_FLIGHT_X
+    : isCrashed
+      ? CAMERA_PAN_RATE_CRASHED
+      : isJackpotLanded
+        ? CAMERA_PAN_RATE_CRASHED
+        : CAMERA_PAN_RATE_DEFAULT;
+  const panRateY = isFlight
+    ? CAMERA_PAN_RATE_FLIGHT_Y
+    : isCrashed
+      ? CAMERA_PAN_RATE_CRASHED
+      : isJackpotLanded
+        ? CAMERA_PAN_RATE_CRASHED
+        : CAMERA_PAN_RATE_DEFAULT;
+  const panAlphaX = 1 - Math.exp(-panRateX * dtSec);
+  const panAlphaY = 1 - Math.exp(-panRateY * dtSec);
+
+  // First-frame: snap to target so we don't lerp from `(0, 0)` (Pixi's
+  // initial container transform) for half a second. `displayScale < 0`
+  // is the same sentinel bootstrap uses for the scale lerp.
+  //
+  // Lerp basis is the SCALE-COMPENSATED anchor, not the raw `prevWorldX/Y`:
+  // when scale changes between frames the anchor exactly preserves the
+  // focus point's previous canvas position, so a sudden zoom (e.g. the
+  // 1.22× impact punch-in) produces zero lateral / vertical jerk on the
+  // ball — only the actual difference between anchor and target gets
+  // animated, which is what we want from the lerp.
+  const isFirstFrame = displayScale < 0;
+  const lerpedX = isFirstFrame
+    ? targetWorldX
+    : anchorWorldX + (targetWorldX - anchorWorldX) * panAlphaX;
+  const lerpedY = isFirstFrame
+    ? targetWorldY
+    : anchorWorldY + (targetWorldY - anchorWorldY) * panAlphaY;
+
+  // Re-clamp the LERPED value to current bounds. The anchor inherits clamps
+  // from last frame's bounds, but `scale` (and therefore `minX`/`minY`) can
+  // change frame-to-frame; an unclamped lerp could briefly leave the
+  // valid range and expose black bars at the edges.
+  world.x =
+    worldW * scale <= canvasW
+      ? targetWorldX // pillarbox case is already centered, no smoothing needed
+      : Math.max(minX, Math.min(0, lerpedX));
+  world.y = Math.max(minY, lerpedY);
 
   if (terrainLayer) {
     /**

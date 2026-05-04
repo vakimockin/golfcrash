@@ -40,6 +40,30 @@ export const CAMERA_SCALE_SMOOTH_RATE = 11;
 /** @deprecated use CAMERA_SCALE_SMOOTH_RATE; kept for churn */
 export const CAMERA_LERP = 0.08;
 
+/**
+ * Pan-smoothing rates (1/s) used in `updateCamera`. The world position is
+ * lerped via `alpha = 1 − exp(−rate × dt)` so the result is dt-correct and
+ * does not jitter at variable frame rates.
+ *
+ * § ТЗ Phase 3 hard constraints:
+ *   - Flight duration is server-authoritative (5–7 s) — must NOT be eased.
+ *   - Camera must Zoom-IN during flight, Zoom-OUT otherwise.
+ *
+ * Flight: low pan rates + `FLIGHT_LOOKAT_TRACK_RATE` in bootstrap so the ball
+ * can outpace framing. Jackpot lip / crashed: use crashed-tier pan so the cup
+ * stays in view without snappy snaps.
+ */
+// Bootstrap pre-smooths the ball into `flightLookAt` at `FLIGHT_LOOKAT_TRACK_RATE`;
+// camera-controller adds a second lag with these pan rates. Lower X rate ⇒
+// the ball outruns the framing more clearly (Aviator-style).
+export const FLIGHT_LOOKAT_TRACK_RATE = 4.2;
+export const CAMERA_PAN_RATE_FLIGHT_X = 2.2;
+export const CAMERA_PAN_RATE_FLIGHT_Y = 5;
+/** Snappier than flight so the falling ball stays under the camera through impact / crash settle. */
+export const CAMERA_PAN_RATE_CRASHED = 9;
+/** Snappy follow used outside of `flight` / `crashed` (idle, runToBall, landed, preShot, …). */
+export const CAMERA_PAN_RATE_DEFAULT = 10;
+
 export const PLANNED_HAZARD_WIDTH = 150;
 
 export const FRONT_TILE_HEIGHT = TERRAIN_FRONT_ROAD_STRIP_HEIGHT_PX;

@@ -1,0 +1,48 @@
+{ "skeleton": { "images": "/d/playt/golf/" },
+"bones": [
+	{ "name": "root" }
+],
+"slots": [
+	{ "name": "beak_lower", "bone": "root", "attachment": "beak_lower" },
+	{ "name": "beak_upper", "bone": "root", "attachment": "beak_upper" },
+	{ "name": "closed_eye", "bone": "root", "attachment": "closed_eye" },
+	{ "name": "feather_1", "bone": "root", "attachment": "feather_1" },
+	{ "name": "feather_2", "bone": "root", "attachment": "feather_2" },
+	{ "name": "feather_3", "bone": "root", "attachment": "feather_3" },
+	{ "name": "feather_4", "bone": "root", "attachment": "feather_4" },
+	{ "name": "feather_5", "bone": "root", "attachment": "feather_5" },
+	{ "name": "feather_6", "bone": "root", "attachment": "feather_6" }
+],
+"skins": {
+	"default": {
+		"beak_lower": {
+			"beak_lower": { "x": 104.5, "y": -292, "width": 45, "height": 20 }
+		},
+		"beak_upper": {
+			"beak_upper": { "x": 97, "y": -282, "width": 60, "height": 28 }
+		},
+		"closed_eye": {
+			"closed_eye": { "x": 142.5, "y": -281.5, "width": 21, "height": 13 }
+		},
+		"feather_1": {
+			"feather_1": { "x": 97, "y": -388, "width": 48, "height": 24 }
+		},
+		"feather_2": {
+			"feather_2": { "x": 401.5, "y": -392, "width": 33, "height": 26 }
+		},
+		"feather_3": {
+			"feather_3": { "x": 109, "y": -436.5, "width": 24, "height": 19 }
+		},
+		"feather_4": {
+			"feather_4": { "x": 126.5, "y": -212, "width": 23, "height": 48 }
+		},
+		"feather_5": {
+			"feather_5": { "x": 377, "y": -219, "width": 36, "height": 20 }
+		},
+		"feather_6": {
+			"feather_6": { "x": 423.5, "y": -301, "width": 39, "height": 18 }
+		}
+	}
+},
+"animations": { "animation": {} }
+}

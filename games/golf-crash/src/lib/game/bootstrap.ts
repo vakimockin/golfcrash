@@ -57,6 +57,7 @@ import {
 	CAMERA_SCALE_SMOOTH_RATE,
 	CHAR_X,
 	FLAG_X,
+	FLIGHT_LOOKAT_TRACK_RATE,
 	FLIGHT_CAMERA_FOCUS_X,
 	FLIGHT_CAMERA_FOCUS_Y,
 	GROUND_Y,
@@ -202,6 +203,8 @@ export const bootstrapGame = (
 	let messageLabel: Text | null = null;
 	let crashFlash: Graphics | null = null;
 	let goldFlash: Graphics | null = null;
+	/** Full-screen darkening during jackpot hole lip orbit (TDD anticipation). */
+	let nearMissAnticipationG: Graphics | null = null;
 	let mobSectorDebugG: Graphics | null = null;
 	let mobSectorDebugLabelRoot: Container | null = null;
 	/** Mobs spawned when the ball first enters a sector × altitude cell during flight. */
@@ -217,7 +220,6 @@ export const bootstrapGame = (
 	let flightZoomCurrent = 1;
 	const FLIGHT_CAM_WIDE_MUL = 0.58;
 	const FLIGHT_CAM_TIGHT_MUL = 1.2;
-	const FLIGHT_CAM_APPROACH_START = 0.7;
 	const IMPACT_ZOOM_PEAK = 1.22;
 	/** Impact punch ~1/s; dt-correct in `animate`. */
 	const IMPACT_ZOOM_SMOOTH_RATE = 16;
@@ -245,6 +247,15 @@ export const bootstrapGame = (
 	let runBallToX = BALL_START_X;
 	let runBallToY = BALL_START_Y;
 	const RUN_BALL_ROLL_MS = 520;
+	/** Jackpot near-miss at cup (~3 s total); keep in sync with `updateOverlay` timing. */
+	const NEAR_MISS_ARRIVAL_MS = 1000;
+	const NEAR_MISS_ORBIT_MS = 1500;
+	const NEAR_MISS_SINK_MS = 500;
+	/** Orbits on the lip (1.5–2 turns per TDD). */
+	const NEAR_MISS_ORBIT_TURNS = 1.75;
+	const NEAR_MISS_SINK_DEPTH_PX = 68;
+	/** Ball resting on fairway vs `hillSurfaceY` — same as crashed `fairwayContactY`. */
+	const BALL_GROUND_OFFSET_Y = 8;
 	let characterRunFromX = CHAR_X;
 	let characterRunFromY = GROUND_Y - 140;
 	let currentTeeX = mapLayout.start.ballX;
@@ -638,32 +649,25 @@ export const bootstrapGame = (
 			const t0 =
 				game.flightStartedAtMs > 0 ? game.flightStartedAtMs : nowMs;
 			const elapsed = Math.max(0, (nowMs - t0) / 1000);
+			/** Linear in flight time — zoom feel stays in cam smoothing + lag, not in remapping t. */
 			const p = Math.min(1, duration > 1e-6 ? elapsed / duration : 0);
-			const k = Math.max(
-				0,
-				Math.min(
-					1,
-					(p - FLIGHT_CAM_APPROACH_START) /
-						(1 - FLIGHT_CAM_APPROACH_START),
-				),
-			);
-			const smooth = k * k * (3 - 2 * k);
 			flightZoomGoal =
 				FLIGHT_CAM_WIDE_MUL +
-				(FLIGHT_CAM_TIGHT_MUL - FLIGHT_CAM_WIDE_MUL) * smooth;
+				(FLIGHT_CAM_TIGHT_MUL - FLIGHT_CAM_WIDE_MUL) * p;
 		}
 		flightZoomCurrent += (flightZoomGoal - flightZoomCurrent) * zoomAlpha;
 
 		let flightLookAt: { x: number; y: number } | null = null;
 		if (game.phase === "flight" && fireBallSprite) {
-			const trackAlpha = 1 - Math.exp(-18 * dtCap);
+			const trackAlpha = 1 - Math.exp(-FLIGHT_LOOKAT_TRACK_RATE * dtCap);
 			flightCamSmX += (fireBallSprite.x - flightCamSmX) * trackAlpha;
 			flightCamSmY += (fireBallSprite.y - flightCamSmY) * trackAlpha;
 			const flown = Math.max(0, fireBallSprite.x - currentTeeX);
-			const lead = flown * 0.17 + Math.max(0, game.multiplier - 1) * 2.4;
+			/** Small lead so focus isn't behind the ball; lower = stronger “lazy” follow vs chase. */
+			const lead = flown * 0.06 + Math.max(0, game.multiplier - 1) * 1.2;
 			flightLookAt = {
 				x: flightCamSmX + lead,
-				y: flightCamSmY - flown * 0.02,
+				y: flightCamSmY - flown * 0.015,
 			};
 		}
 
@@ -716,7 +720,7 @@ export const bootstrapGame = (
 		const arcHeightBase = flightArcHeightFromMultiplier(mult);
 
 		const p = Math.min(1, Math.max(0, progress));
-		// Strictly linear in wall-clock time: no ease-out, or |dy/dt| collapses near the end and feels stuck.
+		/** Wall-clock progress = u; no ease curves on u. X linear in u; arc = sin(πu) (vertical parabola segment). */
 		const u = p;
 
 		let targetX = Math.min(PLAY_END_X, currentTeeX + distance);
@@ -728,6 +732,13 @@ export const bootstrapGame = (
 		} else if (outcome === "crash" && plannedCrashTarget) {
 			targetX = plannedCrashTarget.impactX;
 			targetY = plannedCrashTarget.impactY;
+		}
+		if (outcome === "crash" && currentPlan?.landingZone === "water") {
+			const nearestWater = resolveWaterTouchdown(mapLayout, targetX);
+			if (nearestWater) {
+				targetX = nearestWater.x;
+				targetY = nearestWater.y;
+			}
 		}
 
 		const horizontalSpan = Math.abs(targetX - currentTeeX);
@@ -1145,7 +1156,7 @@ export const bootstrapGame = (
 		}
 	};
 
-	const updateBall = (now: number): void => {
+	const updateBall = (now: number, dtSec: number): void => {
 		if (!ballSprite || !fireBallSprite) return;
 		const phase = game.phase;
 		if (phase === "preShot" && lastPhase !== "preShot") {
@@ -1230,7 +1241,7 @@ export const bootstrapGame = (
 			characterSprite?.state.setAnimation(0, "idle", true);
 		}
 		if (phase === "landed" && lastPhase !== "landed") {
-			goldFlashUntil = now + 900;
+			goldFlashUntil = game.isJackpot ? now - 1 : now + 900;
 			landedStartedAt = now;
 			landedFromX = fireBallSprite.x;
 			landedFromY = fireBallSprite.y;
@@ -1245,11 +1256,7 @@ export const bootstrapGame = (
 		if (phase === "flight") {
 			ballSprite.visible = false;
 			fireBallSprite.visible = true;
-			if (
-				collision &&
-				now >= collision.impactAt &&
-				isCurrentPlanZeroCrash()
-			) {
+			if (collision && now >= collision.impactAt) {
 				const dt = (now - collision.impactAt) / 1000;
 				fireBallSprite.x =
 					collision.ballImpactX + collision.ballKnockVx * dt;
@@ -1257,7 +1264,9 @@ export const bootstrapGame = (
 					collision.ballImpactY +
 					collision.ballKnockVy * dt +
 					0.5 * KNOCK_GRAVITY * dt * dt;
-				fireBallSprite.rotation += 0.3;
+				const multSpin =
+					1 + Math.log(Math.max(1, game.multiplier)) * 0.65;
+				fireBallSprite.rotation += 11 * multSpin * dtSec;
 			} else {
 				const duration = getFlightDurationSec(
 					currentPlan?.crashAtSec ?? 2,
@@ -1273,9 +1282,10 @@ export const bootstrapGame = (
 				fireBallSprite.x = pos.x;
 				fireBallSprite.y = pos.y;
 				const speedFactor =
-					1 + Math.log(Math.max(1, game.multiplier)) * 0.55;
-				const spinEase = 0.45 + 0.55 * progress ** 1.15;
-				fireBallSprite.rotation += 0.2 * speedFactor * spinEase;
+					1 + Math.log(Math.max(1, game.multiplier)) * 0.95;
+				/** Rad/s — speed from multiplier only; `progress` stays out of spin so pace doesn’t fake time ease. */
+				const omega = 12 * speedFactor;
+				fireBallSprite.rotation += omega * dtSec;
 			}
 			revealFlightGridCell(fireBallSprite.x, fireBallSprite.y);
 			return;
@@ -1301,21 +1311,73 @@ export const bootstrapGame = (
 				fireBallSprite.x = landedBallX;
 				fireBallSprite.y = landedBallY;
 				fireBallSprite.alpha = 1;
+				fireBallSprite.tint = 0xffffff;
 				return;
 			}
-			// Ball lands into the hole area, then briefly sinks.
+
+			// TDD: near-miss — (1) ground roll on hillSurfaceY (2) ellipse rim orbit (3) sink + fade.
 			ballSprite.visible = false;
 			fireBallSprite.visible = true;
-			const arrival = Math.min(1, (now - landedStartedAt) / 700);
-			const sink = Math.max(0, (now - landedStartedAt - 700) / 250);
-			fireBallSprite.x = landedFromX + (HOLE_X - landedFromX) * arrival;
-			fireBallSprite.y =
-				landedFromY +
-				(holeY() - landedFromY) * arrival -
-				Math.sin(arrival * Math.PI) * 68 +
-				sink * 8;
-			fireBallSprite.alpha = 1 - Math.min(0.45, sink * 0.45);
-			fireBallSprite.rotation += 0.1;
+
+			const elapsed = now - landedStartedAt;
+
+			const arrivalDuration = NEAR_MISS_ARRIVAL_MS;
+			const orbitDuration = NEAR_MISS_ORBIT_MS;
+			const sinkDuration = NEAR_MISS_SINK_MS;
+
+			const rollP = Math.min(1, elapsed / arrivalDuration);
+			const orbitP = Math.min(
+				1,
+				Math.max(0, (elapsed - arrivalDuration) / orbitDuration),
+			);
+			const sinkP = Math.max(
+				0,
+				(elapsed - arrivalDuration - orbitDuration) / sinkDuration,
+			);
+
+			const holeRadiusX = 22;
+			const holeRadiusY = 6;
+			const orbitStartAngle = Math.PI / 2;
+			const orbitEndAngle =
+				orbitStartAngle + NEAR_MISS_ORBIT_TURNS * 2 * Math.PI;
+
+			if (elapsed <= arrivalDuration) {
+				const x =
+					landedFromX + (HOLE_X - landedFromX) * rollP;
+				const y = hillSurfaceY(x) - BALL_GROUND_OFFSET_Y;
+				fireBallSprite.x = x;
+				fireBallSprite.y = y;
+				fireBallSprite.alpha = 1;
+				fireBallSprite.tint = 0xffffff;
+				fireBallSprite.rotation += 6 * dtSec;
+			} else if (elapsed <= arrivalDuration + orbitDuration) {
+				const angle =
+					orbitStartAngle + orbitP * NEAR_MISS_ORBIT_TURNS * 2 * Math.PI;
+				fireBallSprite.x = HOLE_X + Math.cos(angle) * holeRadiusX;
+				fireBallSprite.y = holeY() + Math.sin(angle) * holeRadiusY;
+				fireBallSprite.alpha = 1;
+				const pulse = 0.5 + 0.5 * Math.sin(now * 0.01);
+				const gMix = Math.floor(0xff * (0.55 + 0.45 * pulse));
+				const bMix = Math.floor(0x55 * (1 - pulse * 0.85));
+				fireBallSprite.tint = (0xff << 16) | (gMix << 8) | bMix;
+				fireBallSprite.rotation += 11 * dtSec;
+			} else {
+				const sinkFromX =
+					HOLE_X + Math.cos(orbitEndAngle) * holeRadiusX;
+				const sinkFromY =
+					holeY() + Math.sin(orbitEndAngle) * holeRadiusY;
+				fireBallSprite.x =
+					sinkFromX + (HOLE_X - sinkFromX) * Math.min(1, sinkP) * 0.35;
+				fireBallSprite.y =
+					sinkFromY + NEAR_MISS_SINK_DEPTH_PX * Math.min(1, sinkP);
+				fireBallSprite.alpha = 1 - Math.min(1, sinkP);
+				fireBallSprite.tint = 0xffffff;
+				fireBallSprite.rotation += 9 * dtSec;
+
+				if (sinkP >= 1 && goldFlashUntil < now) {
+					goldFlashUntil = now + 900;
+				}
+			}
 			return;
 		}
 
@@ -1457,6 +1519,9 @@ export const bootstrapGame = (
 	};
 
 	const spawnEffect = (event: DecorativeEvent, now: number): void => {
+		// Water-loss rounds should read as a clean fall into a pond: no fake mid-air
+		// interactions/zoom punches from decorative pass-by events.
+		if (currentPlan?.landingZone === "water") return;
 		if (!canSpawnEventAtBall(event)) return;
 		const planned =
 			plannedHazards.find(
@@ -1565,15 +1630,22 @@ export const bootstrapGame = (
 			1,
 			currentPlan?.outcome ?? "crash",
 		);
-		const ballX = plannedCrashTarget?.impactX ?? fallbackTarget.x;
-		const ballY = plannedCrashTarget?.impactY ?? fallbackTarget.y;
-		const sideMul = ballX > currentTeeX ? 1 : -1;
-		const ballKnockVx =
-			cause === "landed" || cause === "fakeBoost"
+		const targetX = plannedCrashTarget?.impactX ?? fallbackTarget.x;
+		const targetY = plannedCrashTarget?.impactY ?? fallbackTarget.y;
+		const isWaterLoss = currentPlan?.landingZone === "water";
+		const startX = fireBallSprite?.x ?? targetX;
+		const startY = fireBallSprite?.y ?? targetY;
+		const sideMul = targetX > currentTeeX ? 1 : -1;
+		const ballX = isWaterLoss ? startX : targetX;
+		const ballY = isWaterLoss ? startY : targetY;
+		const ballKnockVx = isWaterLoss
+			? (targetX - startX) * 1.45
+			: cause === "landed" || cause === "fakeBoost"
 				? (Math.random() - 0.5) * 100
 				: sideMul * (cause === "cart" ? 380 : 260);
-		const ballKnockVy =
-			cause === "cart"
+		const ballKnockVy = isWaterLoss
+			? Math.max(220, (targetY - startY) * 2.2)
+			: cause === "cart"
 				? -200
 				: cause === "landed" || cause === "fakeBoost"
 					? 260
@@ -1607,7 +1679,11 @@ export const bootstrapGame = (
 	const onCollisionImpact = (now: number): void => {
 		if (!collision) return;
 		const { cause, ballImpactX: x, ballImpactY: y } = collision;
-		if (cause !== "landed" && cause !== "fakeBoost") {
+		if (
+			cause !== "landed" &&
+			cause !== "fakeBoost" &&
+			currentPlan?.landingZone !== "water"
+		) {
 			triggerImpactZoom(now);
 		}
 		if (cause === "cart") {
@@ -2107,6 +2183,39 @@ export const bootstrapGame = (
 				goldFlash.rect(0, 0, canvasW, canvasH).fill(0xffd700);
 			}
 		}
+		if (nearMissAnticipationG) {
+			let alpha = 0;
+			if (game.phase === "landed" && game.isJackpot && landedStartedAt > 0) {
+				const elapsed = now - landedStartedAt;
+				const arrivalDuration = NEAR_MISS_ARRIVAL_MS;
+				const orbitDuration = NEAR_MISS_ORBIT_MS;
+				const sinkDuration = NEAR_MISS_SINK_MS;
+				if (
+					elapsed > arrivalDuration &&
+					elapsed <= arrivalDuration + orbitDuration
+				) {
+					const p = (elapsed - arrivalDuration) / orbitDuration;
+					alpha = 0.2 + Math.sin(p * Math.PI) * 0.22;
+				} else if (elapsed <= arrivalDuration) {
+					alpha = 0.12 * Math.min(1, elapsed / arrivalDuration);
+				} else if (
+					elapsed > arrivalDuration + orbitDuration &&
+					elapsed <= arrivalDuration + orbitDuration + sinkDuration
+				) {
+					const sinkP =
+						(elapsed - arrivalDuration - orbitDuration) / sinkDuration;
+					alpha = 0.28 * (1 - sinkP);
+				}
+			}
+			nearMissAnticipationG.visible = alpha > 0.02;
+			if (nearMissAnticipationG.visible) {
+				nearMissAnticipationG.alpha = Math.min(0.48, alpha);
+				nearMissAnticipationG.clear();
+				nearMissAnticipationG
+					.rect(0, 0, canvasW, canvasH)
+					.fill({ color: 0x000000, alpha: 1 });
+			}
+		}
 	};
 
 	const animate = (ticker: Ticker): void => {
@@ -2119,7 +2228,7 @@ export const bootstrapGame = (
 		updateAmbientDecor(dt, now);
 		updatePlannedHazards(now);
 		updateCollision(now);
-		updateBall(now);
+		updateBall(now, dtCap);
 		updateBallFx(now);
 		refreshVisualMode();
 		updateCharacter(now);
@@ -2341,6 +2450,11 @@ export const bootstrapGame = (
 	};
 
 	const buildOverlay = (): void => {
+		nearMissAnticipationG = new Graphics();
+		nearMissAnticipationG.visible = false;
+		nearMissAnticipationG.eventMode = "none";
+		app.stage.addChild(nearMissAnticipationG);
+
 		crashFlash = new Graphics();
 		crashFlash.visible = false;
 		app.stage.addChild(crashFlash);

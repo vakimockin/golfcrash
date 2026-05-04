@@ -1,0 +1,104 @@
+{ "skeleton": { "images": "/d/playt/" },
+"bones": [
+	{ "name": "root" }
+],
+"slots": [
+	{ "name": "dome", "bone": "root", "attachment": "dome" },
+	{ "name": "arm_R", "bone": "root", "attachment": "arm_R" },
+	{ "name": "hand_R", "bone": "root", "attachment": "hand_R" },
+	{ "name": "arm_L", "bone": "root", "attachment": "arm_L" },
+	{ "name": "hand_L", "bone": "root", "attachment": "hand_L" },
+	{ "name": "body", "bone": "root", "attachment": "body" },
+	{ "name": "head", "bone": "root", "attachment": "head" },
+	{ "name": "eye_R", "bone": "root", "attachment": "eye_R" },
+	{ "name": "eye_L", "bone": "root", "attachment": "eye_L" },
+	{ "name": "closed_eye_R", "bone": "root", "attachment": "closed_eye_R" },
+	{ "name": "closed_eye_L", "bone": "root", "attachment": "closed_eye_L" },
+	{ "name": "flying_saucer_1", "bone": "root", "attachment": "flying_saucer_1" },
+	{ "name": "flying_saucer_2", "bone": "root", "attachment": "flying_saucer_2" },
+	{ "name": "light", "bone": "root", "attachment": "light" },
+	{ "name": "light_stick_1", "bone": "root", "attachment": "light_stick_1" },
+	{ "name": "light_stick_2", "bone": "root", "attachment": "light_stick_2" },
+	{ "name": "light_stick_3", "bone": "root", "attachment": "light_stick_3" },
+	{ "name": "light_stick_4", "bone": "root", "attachment": "light_stick_4" },
+	{ "name": "light_stick_5", "bone": "root", "attachment": "light_stick_5" },
+	{ "name": "light_stick_6", "bone": "root", "attachment": "light_stick_6" },
+	{ "name": "light_stick_7", "bone": "root", "attachment": "light_stick_7" },
+	{ "name": "light_stick_8", "bone": "root", "attachment": "light_stick_8" },
+	{ "name": "flying_saucer_3", "bone": "root", "attachment": "flying_saucer_3" }
+],
+"skins": {
+	"default": {
+		"dome": {
+			"dome": { "x": 242.5, "y": -182, "width": 219, "height": 264 }
+		},
+		"arm_R": {
+			"arm_R": { "x": 207, "y": -191, "width": 40, "height": 22 }
+		},
+		"hand_R": {
+			"hand_R": { "x": 196.5, "y": -194, "width": 27, "height": 42 }
+		},
+		"arm_L": {
+			"arm_L": { "x": 271, "y": -191, "width": 40, "height": 22 }
+		},
+		"hand_L": {
+			"hand_L": { "x": 284, "y": -195, "width": 28, "height": 40 }
+		},
+		"body": {
+			"body": { "x": 239, "y": -198, "width": 56, "height": 56 }
+		},
+		"head": {
+			"head": { "x": 237, "y": -144, "width": 78, "height": 98 }
+		},
+		"eye_R": {
+			"eye_R": { "x": 222.5, "y": -148.5, "width": 31, "height": 27 }
+		},
+		"eye_L": {
+			"eye_L": { "x": 255, "y": -147.5, "width": 30, "height": 27 }
+		},
+		"closed_eye_R": {
+			"closed_eye_R": { "x": 221.5, "y": -149, "width": 29, "height": 10 }
+		},
+		"closed_eye_L": {
+			"closed_eye_L": { "x": 255, "y": -148, "width": 28, "height": 12 }
+		},
+		"flying_saucer_1": {
+			"flying_saucer_1": { "x": 243.5, "y": -228.5, "width": 239, "height": 47 }
+		},
+		"flying_saucer_2": {
+			"flying_saucer_2": { "x": 249.5, "y": -277, "width": 469, "height": 110 }
+		},
+		"light": {
+			"light": { "x": 246, "y": -343.5, "width": 268, "height": 119 }
+		},
+		"light_stick_1": {
+			"light_stick_1": { "x": 260, "y": -323.5, "width": 10, "height": 39 }
+		},
+		"light_stick_2": {
+			"light_stick_2": { "x": 243, "y": -366.5, "width": 8, "height": 33 }
+		},
+		"light_stick_3": {
+			"light_stick_3": { "x": 184.5, "y": -322, "width": 11, "height": 34 }
+		},
+		"light_stick_4": {
+			"light_stick_4": { "x": 330.5, "y": -321, "width": 13, "height": 34 }
+		},
+		"light_stick_5": {
+			"light_stick_5": { "x": 147.5, "y": -363, "width": 19, "height": 82 }
+		},
+		"light_stick_6": {
+			"light_stick_6": { "x": 130, "y": -348, "width": 20, "height": 52 }
+		},
+		"light_stick_7": {
+			"light_stick_7": { "x": 289, "y": -366, "width": 12, "height": 46 }
+		},
+		"light_stick_8": {
+			"light_stick_8": { "x": 370.5, "y": -358, "width": 17, "height": 44 }
+		},
+		"flying_saucer_3": {
+			"flying_saucer_3": { "x": 246, "y": -294, "width": 224, "height": 22 }
+		}
+	}
+},
+"animations": { "animation": {} }
+}

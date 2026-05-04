@@ -1,0 +1,60 @@
+{ "skeleton": { "images": "/d/KENDOO/" },
+"bones": [
+	{ "name": "root" }
+],
+"slots": [
+	{ "name": "wing_down_back", "bone": "root", "attachment": "wing_down_back" },
+	{ "name": "wing_up_back", "bone": "root", "attachment": "wing_up_back" },
+	{ "name": "leg_back", "bone": "root", "attachment": "leg_back" },
+	{ "name": "body", "bone": "root", "attachment": "body" },
+	{ "name": "leg_front", "bone": "root", "attachment": "leg_front" },
+	{ "name": "wing_down_front", "bone": "root", "attachment": "wing_down_front" },
+	{ "name": "wing_up_front", "bone": "root", "attachment": "wing_up_front" },
+	{ "name": "Векторний смарт-об’єкт", "bone": "root", "attachment": "Векторний смарт-об’єкт" },
+	{ "name": "head", "bone": "root", "attachment": "head" },
+	{ "name": "pupil", "bone": "root", "attachment": "pupil" },
+	{ "name": "eye", "bone": "root", "attachment": "eye" },
+	{ "name": "brow", "bone": "root", "attachment": "brow" }
+],
+"skins": {
+	"default": {
+		"wing_down_back": {
+			"wing_down_back": { "x": 191, "y": -377, "width": 100, "height": 172 }
+		},
+		"wing_up_back": {
+			"wing_up_back": { "x": 202, "y": -203, "width": 116, "height": 200 }
+		},
+		"leg_back": {
+			"leg_back": { "x": 282, "y": -369.5, "width": 60, "height": 57 }
+		},
+		"body": {
+			"body": { "x": 258.5, "y": -314.5, "width": 235, "height": 91 }
+		},
+		"leg_front": {
+			"leg_front": { "x": 309, "y": -359.5, "width": 60, "height": 57 }
+		},
+		"wing_down_front": {
+			"wing_down_front": { "x": 279.5, "y": -392.5, "width": 135, "height": 187 }
+		},
+		"wing_up_front": {
+			"wing_up_front": { "x": 299, "y": -205.5, "width": 178, "height": 205 }
+		},
+		"Векторний смарт-об’єкт": {
+			"Векторний смарт-об’єкт": { "x": 124.5, "y": -284, "width": 107, "height": 62 }
+		},
+		"head": {
+			"head": { "x": 124.5, "y": -284, "width": 107, "height": 62 }
+		},
+		"pupil": {
+			"pupil": { "x": 138, "y": -280, "width": 14, "height": 14 }
+		},
+		"eye": {
+			"eye": { "x": 142, "y": -279.5, "width": 28, "height": 23 }
+		},
+		"brow": {
+			"brow": { "x": 141.5, "y": -272, "width": 33, "height": 14 }
+		}
+	}
+},
+"animations": { "animation": {} }
+}

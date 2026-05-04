@@ -1,0 +1,100 @@
+{ "skeleton": { "images": "/d/playt/" },
+"bones": [
+	{ "name": "root" }
+],
+"slots": [
+	{ "name": "wing_up_back", "bone": "root", "attachment": "wing_up_back" },
+	{ "name": "wing_down_back", "bone": "root", "attachment": "wing_down_back" },
+	{ "name": "leg_back", "bone": "root", "attachment": "leg_back" },
+	{ "name": "body", "bone": "root", "attachment": "body" },
+	{ "name": "body_2", "bone": "root", "attachment": "body_2" },
+	{ "name": "body_3", "bone": "root", "attachment": "body_3" },
+	{ "name": "leg_front", "bone": "root", "attachment": "leg_front" },
+	{ "name": "beak_lower", "bone": "root", "attachment": "beak_lower" },
+	{ "name": "beak_upper", "bone": "root", "attachment": "beak_upper" },
+	{ "name": "head", "bone": "root", "attachment": "head" },
+	{ "name": "eye_1", "bone": "root", "attachment": "eye_1" },
+	{ "name": "pupil", "bone": "root", "attachment": "pupil" },
+	{ "name": "eye_2", "bone": "root", "attachment": "eye_2" },
+	{ "name": "closed_eye", "bone": "root", "attachment": "closed_eye" },
+	{ "name": "brow", "bone": "root", "attachment": "brow" },
+	{ "name": "wing_up_front", "bone": "root", "attachment": "wing_up_front" },
+	{ "name": "wing_down_front", "bone": "root", "attachment": "wing_down_front" },
+	{ "name": "feather_1", "bone": "root", "attachment": "feather_1" },
+	{ "name": "feather_2", "bone": "root", "attachment": "feather_2" },
+	{ "name": "feather_3", "bone": "root", "attachment": "feather_3" },
+	{ "name": "feather_4", "bone": "root", "attachment": "feather_4" },
+	{ "name": "feather_5", "bone": "root", "attachment": "feather_5" }
+],
+"skins": {
+	"default": {
+		"wing_up_back": {
+			"wing_up_back": { "x": 243, "y": -202.5, "width": 86, "height": 149 }
+		},
+		"wing_down_back": {
+			"wing_down_back": { "x": 228.5, "y": -336, "width": 103, "height": 148 }
+		},
+		"leg_back": {
+			"leg_back": { "x": 280, "y": -351.5, "width": 60, "height": 57 }
+		},
+		"body": {
+			"body": { "x": 279, "y": -301.5, "width": 220, "height": 103 }
+		},
+		"body_2": {
+			"body_2": { "x": 268.5, "y": -268.5, "width": 205, "height": 113 }
+		},
+		"body_3": {
+			"body_3": { "x": 275.5, "y": -288, "width": 205, "height": 110 }
+		},
+		"leg_front": {
+			"leg_front": { "x": 300, "y": -352.5, "width": 60, "height": 57 }
+		},
+		"beak_lower": {
+			"beak_lower": { "x": 117, "y": -264, "width": 50, "height": 22 }
+		},
+		"beak_upper": {
+			"beak_upper": { "x": 114, "y": -260, "width": 50, "height": 30 }
+		},
+		"head": {
+			"head": { "x": 161.5, "y": -261, "width": 83, "height": 68 }
+		},
+		"eye_1": {
+			"eye_1": { "x": 140, "y": -248.5, "width": 18, "height": 17 }
+		},
+		"pupil": {
+			"pupil": { "x": 138, "y": -248, "width": 12, "height": 12 }
+		},
+		"eye_2": {
+			"eye_2": { "x": 140, "y": -248, "width": 20, "height": 18 }
+		},
+		"closed_eye": {
+			"closed_eye": { "x": 141.5, "y": -249, "width": 21, "height": 6 }
+		},
+		"brow": {
+			"brow": { "x": 141, "y": -241.5, "width": 26, "height": 13 }
+		},
+		"wing_up_front": {
+			"wing_up_front": { "x": 306.5, "y": -211, "width": 157, "height": 184 }
+		},
+		"wing_down_front": {
+			"wing_down_front": { "x": 267, "y": -345, "width": 116, "height": 166 }
+		},
+		"feather_1": {
+			"feather_1": { "x": 114, "y": -386.5, "width": 24, "height": 19 }
+		},
+		"feather_2": {
+			"feather_2": { "x": 157, "y": -174, "width": 38, "height": 38 }
+		},
+		"feather_3": {
+			"feather_3": { "x": 286.5, "y": -136, "width": 23, "height": 48 }
+		},
+		"feather_4": {
+			"feather_4": { "x": 413.5, "y": -221.5, "width": 37, "height": 21 }
+		},
+		"feather_5": {
+			"feather_5": { "x": 354, "y": -374, "width": 32, "height": 28 }
+		}
+	}
+},
+"animations": { "animation": {} }
+}
