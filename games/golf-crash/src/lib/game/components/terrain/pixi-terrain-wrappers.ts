@@ -35,6 +35,7 @@ export const buildLayeredBackground = (
   canvasW: number,
   canvasH: number,
   refs: LayeredBackgroundRefs | null = null,
+  fullWorldPillarBleed = false,
 ): LayeredBackgroundRefs | null =>
   buildLayeredBackgroundComponent(
     parent,
@@ -46,6 +47,7 @@ export const buildLayeredBackground = (
     WORLD_H,
     GROUND_Y,
     refs,
+    fullWorldPillarBleed,
   );
 
 /** Ground strip with fairway masking and hazard carve-outs. */

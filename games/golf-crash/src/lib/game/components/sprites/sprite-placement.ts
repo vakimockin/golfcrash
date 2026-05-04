@@ -2,6 +2,7 @@ import { Assets, Container, Sprite } from "pixi.js";
 import {
   AMBIENT_SPINE_BIRD_LABEL,
   AMBIENT_SPINE_DUCK_LABEL,
+  HAZARD_SPINE_BIRD_LABEL,
 } from "./spine-ambient.js";
 
 /** Horizontal speed component for patrol ambient: X = baseX + ax*sin(now/ms/1300 + phase). */
@@ -64,6 +65,7 @@ export const directionalSpriteKind = (
   node: Container,
 ): "plane" | "helicopter" | "bird" | "duck" | "cart" | null => {
   if (node.label === AMBIENT_SPINE_BIRD_LABEL) return "bird";
+  if (node.label === HAZARD_SPINE_BIRD_LABEL) return "bird";
   if (node.label === AMBIENT_SPINE_DUCK_LABEL) return "duck";
   if (!(node instanceof Sprite)) return null;
   if (isSpriteAlias(node, ["plane", "plane2", "plane3"])) return "plane";

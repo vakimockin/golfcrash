@@ -3,14 +3,14 @@ import { setSpriteVisualWidth } from "./sprite-placement.js";
 
 export const GOLF_CART_ASSET_ALIAS = "golfCar" as const;
 
-/** Целевая ширина на экране (world px при scale 1) — общая для всех сценариев. */
+/** Target width on screen (world px at scale 1) — shared across all spawn paths. */
 export const GOLF_CART_VISUAL_WIDTH_PX = 150;
 
-/** Точка на SVG, которую ставим на `surfaceY` (колёса / контакт с fairway). */
+/** SVG anchor placed on `surfaceY` (wheels / fairway contact). */
 export const GOLF_CART_SURFACE_ANCHOR_X = 0.5;
 export const GOLF_CART_SURFACE_ANCHOR_Y = 0.6;
 
-/** Сдвиг вдоль Y от линии контакта для planned impact. */
+/** Y offset from the contact line for planned impact. */
 export const GOLF_CART_IMPACT_OFFSET_Y_PX = 1;
 
 export const GOLF_CART_ALPHA_AMBIENT = 1;
@@ -18,15 +18,15 @@ export const GOLF_CART_ALPHA_AMBIENT = 1;
 export const GOLF_CART_ALPHA_PLANNED_PRIMARY = 1;
 export const GOLF_CART_ALPHA_PLANNED_SECONDARY = 1;
 
-/** После окна подсветки в `updatePlannedHazards` (secondary cart vs остальные 0.62). */
-export const GOLF_CART_ALPHA_PLANNED_SECONDARY_STEADY = 0.9;
+/** After the highlight window in `updatePlannedHazards` (secondary cart vs others at 0.62). */
+export const GOLF_CART_ALPHA_PLANNED_SECONDARY_STEADY = 1;
 
 export type SpawnGolfCartSpriteArgs = {
   parent: Container;
   x: number;
-  /** Значение `hillSurfaceY(x)` (или эквивалент — линия дороги). */
+  /** `hillSurfaceY(x)` (or equivalent road baseline). */
   surfaceY: number;
-  /** Множитель ширины: для ambient передайте `getMobileScale`. */
+  /** Width multiplier: pass `getMobileScale` for ambient carts. */
   widthScaleMul?: number;
   flip?: boolean;
   alpha?: number;

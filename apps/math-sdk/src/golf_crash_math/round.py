@@ -182,8 +182,11 @@ def _pick_crash_cause(u: float, table: EventTable) -> CrashCause:
     return "landed"
 
 
-def _flight_duration(u: float) -> float:
-    return 5.0 + u * 2.0
+def _clamp_visual_crash_time(raw: float) -> float:
+    """Wall-clock flight length: tied to multiplier growth, clamped for UX."""
+    if raw <= 0.0:
+        return 1.0
+    return min(7.5, max(1.0, raw))
 
 
 def _pick_landing_zone(u: float, cause: CrashCause) -> LandingZone:
@@ -198,22 +201,35 @@ def _pick_landing_zone(u: float, cause: CrashCause) -> LandingZone:
     return "water"
 
 
-def _schedule_decorative(rolls: list[float], crash_t: float) -> list[DecorativeEvent]:
-    """Spread up to N decorative events across the flight duration."""
+def _schedule_decorative(
+    rolls: list[float],
+    crash_t: float,
+    crash_mult_v: float = 10.0,
+) -> list[DecorativeEvent]:
+    """Spread up to N decorative events across the flight duration.
+
+    Low `crash_mult` → fewer mid-air slots and only lower-altitude kinds so we do
+    not spawn planes/helicopters far ahead on a short hop (matches log-distance
+    trajectory on the client).
+    """
     out: list[DecorativeEvent] = []
     if crash_t <= 0.4:
         return out
+
     def pick_for_progress(u: float, progress: float) -> DecorativeKind:
-        if progress < 0.25:
-            options: list[DecorativeKind] = ["cart", "wind", "bird"]
+        if crash_mult_v < 1.75:
+            options = ["cart", "wind", "bird"]
+        elif progress < 0.25:
+            options = ["cart", "wind", "bird"]
         elif progress < 0.65:
             options = ["wind", "bird", "helicopter"]
         else:
             options = ["bird", "helicopter", "plane"]
         return options[min(len(options) - 1, math.floor(u * len(options)))]
 
+    reach = max(0.22, min(1.0, math.log(max(1.0, crash_mult_v)) / math.log(25.0)))
     cursor = 0
-    max_events = min(6, max(1, math.floor(crash_t / 0.75)))
+    max_events = min(3, max(1, math.floor(crash_t / 1.35 * reach)))
     for slot in range(max_events):
         progress = (slot + 1) / (max_events + 1)
         base_t = crash_t * progress
@@ -236,7 +252,7 @@ def generate_round(seed: Seed, table: EventTable = DEFAULT_EVENTS) -> RoundResul
     #   [2] crash multiplier (Bustabit U)
     #   [3] crash cause (weighted)
     #   [4] landing zone
-    #   [5] flight duration
+    #   [5] reserved (legacy flight-duration u; `crash_at_sec` follows multiplier curve)
     #   [6] bonus-round trigger (visual flag, §2.2)
     #   [7] near-miss flag        (visual flag, §2.3)
     #   [8..] decorative events
@@ -255,8 +271,8 @@ def generate_round(seed: Seed, table: EventTable = DEFAULT_EVENTS) -> RoundResul
         )
 
     if rolls[1] < JACKPOT_PROB:
-        crash_t = _flight_duration(rolls[5])
-        decorative = _schedule_decorative(rolls[8:], crash_t)
+        crash_t = _clamp_visual_crash_time(time_for_multiplier(JACKPOT_MULT))
+        decorative = _schedule_decorative(rolls[8:], crash_t, JACKPOT_MULT)
         return RoundResult(
             seed=seed,
             outcome="hole_in_one",
@@ -270,12 +286,12 @@ def generate_round(seed: Seed, table: EventTable = DEFAULT_EVENTS) -> RoundResul
         )
 
     crash_mult = min(crash_from_uniform(rolls[2]), NORMAL_CRASH_MULTIPLIER_CAP)
-    crash_t = _flight_duration(rolls[5])
+    crash_t = _clamp_visual_crash_time(time_for_multiplier(crash_mult))
     cause = _pick_crash_cause(rolls[3], table)
     landing_zone = _pick_landing_zone(rolls[4], cause)
     bonus_triggered = rolls[6] < table.bonus_trigger
     near_miss = rolls[7] < table.near_miss_target
-    decorative = _schedule_decorative(rolls[8:], crash_t)
+    decorative = _schedule_decorative(rolls[8:], crash_t, crash_mult)
     return RoundResult(
         seed=seed,
         outcome="crash",

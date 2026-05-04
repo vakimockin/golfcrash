@@ -5,10 +5,13 @@ export const TERRAIN_HAZARD_SAMPLE_STEP_PX = 8;
 
 export const TERRAIN_WORLD_W_PX = 7600;
 export const TERRAIN_WORLD_H_PX = 8000;
-/** Reference “ground” line in world Y (ball / character baseline hooks). */
-export const TERRAIN_GROUND_Y_PX = 2000;
+/** Reference “ground” line in world Y (ball / character baseline hooks).
+ * Calibrated against basic_map_day.png reference: hazards, FLIGHT_SPAN
+ * (= groundY − SPACE_TOP_Y = 5000 − 400 = 4600), object layers and the
+ * background sky/space split (`groundY × 0.28`) all assume this value. */
+export const TERRAIN_GROUND_Y_PX = 5000;
 /** Target rendered height of front road / fairway SVG tiles (drives all strip scales). */
-export const TERRAIN_FRONT_ROAD_STRIP_HEIGHT_PX = 2000;
+export const TERRAIN_FRONT_ROAD_STRIP_HEIGHT_PX = 1500;
 /** Fairway top/bottom band resampling step along X (must match bootstrap surface arrays). */
 export const TERRAIN_SURFACE_SAMPLE_STEP_PX = 8;
 
@@ -30,8 +33,8 @@ export const TERRAIN_FLAT_TOLERANCE_PX = 3;
 export const TERRAIN_ROAD_SEAM_OVERLAP_PX = 2;
 /** Step along world X when resampling embedded road silhouette from profile textures. */
 export const TERRAIN_ROAD_PROFILE_WORLD_STEP_PX = 2;
-/** Road tiles repeat from −padding through worldW + 2×padding. */
-export const TERRAIN_ROAD_WORLD_PADDING_PX = 1000;
+/** Left/right extension for tiled road strips, ground fill, and sky (must match `BACKGROUND_OVERSCAN_X`). */
+export const TERRAIN_ROAD_WORLD_PADDING_PX = 2200;
 /** Slight widening so scaled tiles don't leave gaps. */
 export const TERRAIN_ROAD_SPRITE_WIDTH_FUDGE_PX = 1.5;
 /** Fallback fill when profile missing: fraction of strip height toward “top”. */
@@ -59,9 +62,8 @@ export const TERRAIN_DISTANT_ROAD_SPRITE_ALPHA = 0.98;
 
 /** draw order inside frontTerrain after sortChildren(). */
 export const TERRAIN_FRONT_CHILD_INDEX_GROUND_FILL = 0;
-export const TERRAIN_FRONT_CHILD_INDEX_WATER_BACKDROP = 1;
-export const TERRAIN_FRONT_CHILD_INDEX_ROAD_LAYER = 2;
-export const TERRAIN_FRONT_CHILD_INDEX_HAZARD_LAYER = 3;
+export const TERRAIN_FRONT_CHILD_INDEX_ROAD_LAYER = 1;
+export const TERRAIN_FRONT_CHILD_INDEX_HAZARD_LAYER = 2;
 
 export const TERRAIN_FRONT_ROAD_ALIASES = [
   "front1",
@@ -111,15 +113,6 @@ export const TERRAIN_WATER_TRAP_Z_INDEX = 5;
 export const TERRAIN_SAND_TRAP_Z_INDEX = 4;
 export const TERRAIN_SAND_TRAP_MAX_HEIGHT_PX = 50;
 export const TERRAIN_SAND_TRAP_HEIGHT_TO_WIDTH_RATIO = 0.25;
-
-export const TERRAIN_WATER_BACKDROP_WORLD_Y_ABOVE_GROUND_PX = 88;
-export const TERRAIN_WATER_BACKDROP_HEIGHT_PX = 5200;
-
-export const TERRAIN_WATER_BACKDROP_GRADIENT_STOPS = [
-  { offset: 0, color: 0xaee5fc },
-  { offset: 0.45, color: 0x5699c9 },
-  { offset: 1, color: 0x0d253f },
-] as const;
 
 export const TERRAIN_FRONT_GROUND_FILL_TOP_OFFSET_PX = 20;
 export const TERRAIN_FRONT_GROUND_FILL_HEIGHT_PX = 5600;

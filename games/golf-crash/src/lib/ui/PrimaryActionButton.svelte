@@ -14,6 +14,7 @@
   const disabled = $derived(
     !isCashOut &&
       (insufficient ||
+        game.phase === "preShot" ||
         game.phase === "cashOut" ||
         game.phase === "crashed" ||
         game.phase === "runToBall"),

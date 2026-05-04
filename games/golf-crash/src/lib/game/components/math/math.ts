@@ -8,7 +8,7 @@ export const HOUSE_EDGE = 0.02;
 export const MAX_CRASH = 1_000_000;
 /** Ordinary crash rounds — keep hole-in-one (`JACKPOT_MULT`) visually/economically supreme. */
 export const NORMAL_CRASH_MULTIPLIER_CAP = 1000;
-export const JACKPOT_MULT = 10;
+export const JACKPOT_MULT = 2000;
 /** P(hole-in-one | survived pre-shot): ~1 in 1 000 000 (sync with `apps/math-sdk`). */
 export const JACKPOT_PROB = 1e-6;
 export const GROWTH_C = 0.08;
@@ -134,6 +134,11 @@ export const timeForMultiplier = (mult: number): number => {
   return Math.pow((mult - 1) / GROWTH_C, 1 / GROWTH_K);
 };
 
+const clampVisualCrashTime = (raw: number): number => {
+  if (raw <= 0) return 1;
+  return Math.min(7.5, Math.max(1, raw));
+};
+
 const pickPreShotFail = (u: number): PreShotFail | null => {
   let cum = 0;
   for (const [kind, p] of [
@@ -164,8 +169,6 @@ const pickCrashCause = (u: number): CrashCause => {
   return "landed";
 };
 
-const flightDuration = (u: number): number => 5 + u * 2;
-
 const pickLandingZone = (u: number, cause: CrashCause): LandingZone => {
   if (cause === "cart") return "cart";
   if (cause === "fakeBoost") return "water";
@@ -174,22 +177,27 @@ const pickLandingZone = (u: number, cause: CrashCause): LandingZone => {
   return "water";
 };
 
-const scheduleDecorative = (rolls: number[], crashT: number): DecorativeEvent[] => {
+const scheduleDecorative = (
+  rolls: number[],
+  crashT: number,
+  crashMultV: number,
+): DecorativeEvent[] => {
   const out: DecorativeEvent[] = [];
   if (crashT <= 0.4) return out;
 
-  const pickForProgress = (u: number, progress: number): DecorativeKind => {
-    const chain: DecorativeKind[] =
-      progress < 0.25
-        ? ["cart", "wind", "bird"]
-        : progress < 0.65
-          ? ["wind", "bird", "helicopter"]
-          : ["bird", "helicopter", "plane"];
-    return chain[Math.min(chain.length - 1, Math.floor(u * chain.length))]!;
+  const optionsForProgress = (progress: number): DecorativeKind[] => {
+    if (crashMultV < 1.75) return ["cart", "wind", "bird"];
+    if (progress < 0.25) return ["cart", "wind", "bird"];
+    if (progress < 0.65) return ["wind", "bird", "helicopter"];
+    return ["bird", "helicopter", "plane"];
   };
 
   let cursor = 0;
-  const maxEvents = Math.min(6, Math.max(1, Math.floor(crashT / 0.75)));
+  const reach = Math.max(
+    0.22,
+    Math.min(1, Math.log(Math.max(1, crashMultV)) / Math.log(25)),
+  );
+  const maxEvents = Math.min(3, Math.max(1, Math.floor((crashT / 1.35) * reach)));
   for (let slot = 0; slot < maxEvents; slot++) {
     const progress = (slot + 1) / (maxEvents + 1);
     const baseT = crashT * progress;
@@ -199,7 +207,11 @@ const scheduleDecorative = (rolls: number[], crashT: number): DecorativeEvent[] 
     const pick = rolls[cursor + 1]!;
     cursor += 2;
     const t = Math.min(crashT - 0.2, baseT + (jitter - 0.5) * 0.35);
-    out.push({ kind: pickForProgress(pick, progress), atSec: t });
+    const options = optionsForProgress(progress);
+    out.push({
+      kind: options[Math.min(options.length - 1, Math.floor(pick * options.length))]!,
+      atSec: t,
+    });
   }
   return out;
 };
@@ -227,7 +239,7 @@ export const generatePlan = async (seed: Seed): Promise<RoundPlan> => {
   }
 
   if (rolls[1]! < JACKPOT_PROB) {
-    const crashT = flightDuration(rolls[2]!);
+    const crashT = clampVisualCrashTime(timeForMultiplier(JACKPOT_MULT));
     return {
       roundId,
       seed,
@@ -239,14 +251,17 @@ export const generatePlan = async (seed: Seed): Promise<RoundPlan> => {
       crashAtSec: crashT,
       preShotFail: null,
       crashCause: null,
-      decorativeEvents: scheduleDecorative(rolls.slice(3), crashT),
+      decorativeEvents: scheduleDecorative(rolls.slice(8), crashT, JACKPOT_MULT),
     };
   }
 
   const crashMultiplier = Math.min(crashFromUniform(rolls[2]!), NORMAL_CRASH_MULTIPLIER_CAP);
-  const crashAtSec = flightDuration(rolls[5]!);
   const crashCause = pickCrashCause(rolls[3]!);
   const landingZone = pickLandingZone(rolls[4]!, crashCause);
+  void rolls[5];
+  void rolls[6];
+  void rolls[7];
+  const crashAtSec = clampVisualCrashTime(timeForMultiplier(crashMultiplier));
   return {
     roundId,
     seed,
@@ -258,7 +273,7 @@ export const generatePlan = async (seed: Seed): Promise<RoundPlan> => {
     crashAtSec,
     preShotFail: null,
     crashCause,
-    decorativeEvents: scheduleDecorative(rolls.slice(6), crashAtSec),
+    decorativeEvents: scheduleDecorative(rolls.slice(8), crashAtSec, crashMultiplier),
   };
 };
 

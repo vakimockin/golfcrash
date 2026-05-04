@@ -71,7 +71,7 @@ const BASE_START = (): MapLayout["start"] => ({
   ballX: 600,
   ballY: hillSurfaceY(690),
   characterX: 490,
-  characterY: hillSurfaceY(490) - 72,
+  characterY: hillSurfaceY(490) - 150,
 });
 
 const findValleys = (
@@ -262,3 +262,36 @@ export const rebuildLayouts = (): void => {
 
 export const getMapLayout = (worldId: WorldId): MapLayout =>
   MAP_LAYOUTS[worldId] ?? MAP_LAYOUTS.sunny;
+
+/**
+ * Picks the nearest water hazard along the fairway and clamps X into its span.
+ * Used when the round ends in water but there is no drawable planned hazard (e.g. `crashCause: "landed"`).
+ */
+export const resolveWaterTouchdown = (
+  layout: MapLayout,
+  alongX: number,
+): { x: number; y: number } | null => {
+  const waters = layout.features.filter((f): f is MapFeature => f.type === "water");
+  if (waters.length === 0) return null;
+
+  let chosen = waters[0]!;
+  let bestDist = Infinity;
+  for (const w of waters) {
+    const left = w.leftEdgeX ?? w.x - 140;
+    const right = w.rightEdgeX ?? w.x + 140;
+    const inside = alongX >= left && alongX <= right;
+    const dist = inside
+      ? 0
+      : Math.min(Math.abs(alongX - left), Math.abs(alongX - right));
+    if (dist < bestDist) {
+      bestDist = dist;
+      chosen = w;
+    }
+  }
+
+  const left = chosen.leftEdgeX ?? chosen.x - 140;
+  const right = chosen.rightEdgeX ?? chosen.x + 140;
+  const x = Math.min(right, Math.max(left, alongX));
+  const y = chosen.hazardLevelY ?? chosen.y;
+  return { x, y };
+};

@@ -38,6 +38,8 @@ export type GameState = {
   lastError: string | null;
   resetToStart: boolean;
   visualTimeMode: VisualTimeMode;
+  /** `performance.now()` when this round's flight began (shared with round tick). */
+  flightStartedAtMs: number;
 };
 
 export const game: GameState = $state({
@@ -59,6 +61,7 @@ export const game: GameState = $state({
   lastError: null,
   resetToStart: false,
   visualTimeMode: "day",
+  flightStartedAtMs: 0,
 });
 
 export const adjustBet = (delta: number): void => {

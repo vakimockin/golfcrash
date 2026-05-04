@@ -7,6 +7,7 @@ import {
   TERRAIN_FRONT_ROAD_STRIP_HEIGHT_PX,
   TERRAIN_GROUND_Y_PX,
   TERRAIN_HORIZON_ABOVE_GROUND_PX,
+  TERRAIN_ROAD_WORLD_PADDING_PX,
   TERRAIN_SURFACE_SAMPLE_STEP_PX,
   TERRAIN_WORLD_H_PX,
   TERRAIN_WORLD_W_PX,
@@ -16,7 +17,7 @@ export const WORLD_W = TERRAIN_WORLD_W_PX;
 export const WORLD_H = TERRAIN_WORLD_H_PX;
 export const GROUND_Y = TERRAIN_GROUND_Y_PX;
 
-export const BACKGROUND_OVERSCAN_X = 2200;
+export const BACKGROUND_OVERSCAN_X = TERRAIN_ROAD_WORLD_PADDING_PX;
 export const SCREENS_TO_SPACE = 6;
 
 export const BALL_START_X = 690;
@@ -31,9 +32,12 @@ export const PLAY_END_X = HOLE_X;
 
 export const NEAR_HOLE_DISTANCE = 320;
 
-export const FLIGHT_CAMERA_FOCUS_X = 0.45;
-export const FLIGHT_CAMERA_FOCUS_Y = 0.4;
+export const FLIGHT_CAMERA_FOCUS_X = 0.42;
+export const FLIGHT_CAMERA_FOCUS_Y = 0.36;
 export const IDLE_CAMERA_FOCUS_X = 0.4;
+/** ~exponential smoothing rate (1/s) for base camera scale — stable across FPS. */
+export const CAMERA_SCALE_SMOOTH_RATE = 11;
+/** @deprecated use CAMERA_SCALE_SMOOTH_RATE; kept for churn */
 export const CAMERA_LERP = 0.08;
 
 export const PLANNED_HAZARD_WIDTH = 150;

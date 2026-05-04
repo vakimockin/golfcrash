@@ -10,6 +10,7 @@ import {
   readRoadProfileFromTexture,
   sampledSurfaceBands,
 } from "./road-profile-texture.js";
+import { TERRAIN_ROAD_WORLD_PADDING_PX } from "./terrain-builder-constants.js";
 
 const FRONT_CHUNK_ALIASES = [
   "front1",
@@ -36,9 +37,9 @@ export const sampleFairwaySurfaceFromAssets = async (
   const accBottom = new Float32Array(cells);
   const counts = new Uint16Array(cells);
 
-  let currentX = -1000;
+  let currentX = -TERRAIN_ROAD_WORLD_PADDING_PX;
   let index = 0;
-  while (currentX < WORLD_W + 2000) {
+  while (currentX < WORLD_W + TERRAIN_ROAD_WORLD_PADDING_PX * 2) {
     const alias = FRONT_CHUNK_ALIASES[index % FRONT_CHUNK_ALIASES.length]!;
     const profile = readRoadProfileFromTexture(alias);
     const actualRenderedWidth = profile.width * uniformScale;

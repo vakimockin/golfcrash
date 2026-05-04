@@ -1,7 +1,6 @@
 import {
 	Assets,
 	Container,
-	FillGradient,
 	Graphics,
 	Sprite,
 	type Texture,
@@ -21,7 +20,6 @@ import {
 	TERRAIN_FRONT_CHILD_INDEX_GROUND_FILL,
 	TERRAIN_FRONT_CHILD_INDEX_HAZARD_LAYER,
 	TERRAIN_FRONT_CHILD_INDEX_ROAD_LAYER,
-	TERRAIN_FRONT_CHILD_INDEX_WATER_BACKDROP,
 	TERRAIN_FRONT_GROUND_FILL_COLOR,
 	TERRAIN_FRONT_GROUND_FILL_HEIGHT_PX,
 	TERRAIN_FRONT_GROUND_FILL_TOP_OFFSET_PX,
@@ -64,9 +62,6 @@ import {
 	TERRAIN_VALLEY_MIN_WIDTH_PX,
 	TERRAIN_VALLEY_LIP_TOLERANCE_PX,
 	TERRAIN_VALLEY_WATER_LEVEL_BELOW_MAX_LIP_PX,
-	TERRAIN_WATER_BACKDROP_GRADIENT_STOPS,
-	TERRAIN_WATER_BACKDROP_HEIGHT_PX,
-	TERRAIN_WATER_BACKDROP_WORLD_Y_ABOVE_GROUND_PX,
 	TERRAIN_WATER_HAZARD_TOP_Y_OFFSET_PX,
 	TERRAIN_WATER_SPRITE_ANCHOR_Y,
 	TERRAIN_WATER_TRAP_ALIASES,
@@ -206,8 +201,8 @@ export const analyzeTerrainForHazards = (
 				});
 				claimed.push({ start: startX, end: endX });
 			}
-			// Вода тільки в заглибинах; у забороненій ділянці (tee) — жодного хазарду.
-			// Пісок тільки з окремого проходу по рівних ділянках нижче.
+			// Water only in valleys; no hazards in the forbidden tee band.
+			// Sand comes from a separate pass over flatter stretches below.
 			leftIdx = bestRight; // skip past this valley
 		}
 	}
@@ -449,9 +444,12 @@ export const buildProceduralFrontTerrain = ({
 	);
 
 	backTerrain.y = BACK_LAYER_Y;
-	backTerrain.scale.set(TERRAIN_BACK_PARALLAX_SCALE);
+	/** Horizontal scale must stay 1 so back/mid strips share the same world X range as the front; uniform scale was shortening distant layers sideways. */
+	backTerrain.scale.x = 1;
+	backTerrain.scale.y = TERRAIN_BACK_PARALLAX_SCALE;
 	midTerrain.y = MID_LAYER_Y;
-	midTerrain.scale.set(TERRAIN_MID_PARALLAX_SCALE);
+	midTerrain.scale.x = 1;
+	midTerrain.scale.y = TERRAIN_MID_PARALLAX_SCALE;
 	frontTerrain.y = HORIZON_Y;
 	frontTerrain.scale.set(TERRAIN_FRONT_PARALLAX_SCALE);
 	backTerrain.addChild(backBuilt.layer);
@@ -622,23 +620,6 @@ export const buildProceduralFrontTerrain = ({
 	hazardLayer.sortChildren();
 	frontTerrain.addChild(hazardLayer);
 
-	const waterBandBackdropGradient = new FillGradient({
-		type: "linear",
-		start: { x: 0, y: 0 },
-		end: { x: 0, y: 1 },
-		textureSpace: "local",
-		colorStops: [...TERRAIN_WATER_BACKDROP_GRADIENT_STOPS],
-	});
-	const waterBackdrop = new Graphics();
-	waterBackdrop
-		.rect(
-			-TERRAIN_ROAD_WORLD_PADDING_PX,
-			localY(groundY + TERRAIN_WATER_BACKDROP_WORLD_Y_ABOVE_GROUND_PX),
-			worldW + TERRAIN_ROAD_WORLD_PADDING_PX * 2,
-			TERRAIN_WATER_BACKDROP_HEIGHT_PX,
-		)
-		.fill(waterBandBackdropGradient);
-
 	const groundFill = new Graphics();
 	groundFill
 		.rect(
@@ -649,16 +630,8 @@ export const buildProceduralFrontTerrain = ({
 		)
 		.fill(TERRAIN_FRONT_GROUND_FILL_COLOR);
 	frontTerrain.addChildAt(groundFill, TERRAIN_FRONT_CHILD_INDEX_GROUND_FILL);
-	frontTerrain.addChildAt(
-		waterBackdrop,
-		TERRAIN_FRONT_CHILD_INDEX_WATER_BACKDROP,
-	);
 
 	frontTerrain.setChildIndex(groundFill, TERRAIN_FRONT_CHILD_INDEX_GROUND_FILL);
-	frontTerrain.setChildIndex(
-		waterBackdrop,
-		TERRAIN_FRONT_CHILD_INDEX_WATER_BACKDROP,
-	);
 	frontTerrain.setChildIndex(
 		frontBuilt.layer,
 		TERRAIN_FRONT_CHILD_INDEX_ROAD_LAYER,

@@ -18,17 +18,23 @@ import {
   type CrashCause,
   type PreShotFail,
 } from "../math/math.js";
+import {
+  getFlightDurationSec,
+  PRIMARY_IMPACT_PROGRESS,
+} from "../../flight-physics.js";
 
 const RESET_DELAY_MS = 2000;
 const PRE_SHOT_FAIL_DELAY_MS = 1800;
 const JACKPOT_RESET_DELAY_MS = 2600;
 const LANDING_SETTLE_MS = 850;
 const RUN_TO_BALL_DELAY_MS = 2000;
+const SWING_WINDUP_MS = 1300;
 
 let raf: number | null = null;
 let resetTimer: ReturnType<typeof setTimeout> | null = null;
 let crashResolveTimer: ReturnType<typeof setTimeout> | null = null;
 let landingTimer: ReturnType<typeof setTimeout> | null = null;
+let swingWindupTimer: ReturnType<typeof setTimeout> | null = null;
 let startedAt = 0;
 let pendingPlan: RoundPlan | null = null;
 let activePlan: RoundPlan | null = null;
@@ -42,12 +48,15 @@ let primaryImpactFired = false;
 
 type DecorativeListener = (event: DecorativeEvent) => void;
 type CrashListener = (cause: CrashCause) => void;
+/** Ball ends in water — no ground "landed" knock; client splashes / sinks. */
+type WaterSurfaceLossListener = () => void;
 type LandingListener = () => void;
 type PreShotFailListener = (kind: PreShotFail) => void;
 type RoundPlanListener = (plan: RoundPlan) => void;
 
 const decorativeListeners = new Set<DecorativeListener>();
 const crashListeners = new Set<CrashListener>();
+const waterSurfaceLossListeners = new Set<WaterSurfaceLossListener>();
 const landingListeners = new Set<LandingListener>();
 const preShotFailListeners = new Set<PreShotFailListener>();
 const roundPlanListeners = new Set<RoundPlanListener>();
@@ -63,6 +72,13 @@ export const onCrashCause = (h: CrashListener): (() => void) => {
   crashListeners.add(h);
   return () => {
     crashListeners.delete(h);
+  };
+};
+
+export const onWaterSurfaceLoss = (h: WaterSurfaceLossListener): (() => void) => {
+  waterSurfaceLossListeners.add(h);
+  return () => {
+    waterSurfaceLossListeners.delete(h);
   };
 };
 
@@ -94,6 +110,9 @@ const fireDecorative = (e: DecorativeEvent): void => {
 const fireCrashCause = (c: CrashCause): void => {
   for (const h of crashListeners) h(c);
 };
+const fireWaterSurfaceLoss = (): void => {
+  for (const h of waterSurfaceLossListeners) h();
+};
 const fireLanding = (): void => {
   for (const h of landingListeners) h();
 };
@@ -105,9 +124,17 @@ const fireRoundPlanReady = (plan: RoundPlan): void => {
 };
 
 const stopTicker = (): void => {
+  clearSwingWindup();
   if (raf !== null) {
     cancelAnimationFrame(raf);
     raf = null;
+  }
+};
+
+const clearSwingWindup = (): void => {
+  if (swingWindupTimer !== null) {
+    clearTimeout(swingWindupTimer);
+    swingWindupTimer = null;
   }
 };
 
@@ -214,6 +241,7 @@ const scheduleReset = (
   resetToStart = false,
 ): void => {
   clearReset();
+  clearSwingWindup();
   resetTimer = setTimeout(() => {
     resetTimer = null;
     activePlan = null;
@@ -247,24 +275,30 @@ const finishCrash = (cause: CrashCause): void => {
   scheduleReset();
 };
 
+/** Skip mid-flight hazard impact FX — includes water (resolved at touch-down). */
 const isZeroCrash = (plan: RoundPlan): boolean =>
   plan.landingZone === "water" ||
   plan.crashCause === "landed" ||
   plan.crashCause === "fakeBoost";
 
-const impactCauseForPlan = (plan: RoundPlan): CrashCause | null =>
-  plan.crashCause ?? (plan.landingZone === "cart" ? "cart" : null);
-
-const beginCrashResolution = (cause: CrashCause): void => {
+const beginWaterLandingResolution = (cause: CrashCause): void => {
   if (resolvingCrash) return;
   resolvingCrash = true;
   stopTicker();
   game.multiplier = game.crashAt;
   game.winningsMicro = 0;
   game.crashCause = cause;
-  fireCrashCause(cause);
-  crashResolveTimer = setTimeout(() => finishCrash(cause), 700);
+  if (cause === "fakeBoost") {
+    fireCrashCause("fakeBoost");
+  } else {
+    fireWaterSurfaceLoss();
+  }
+  const delayMs = cause === "fakeBoost" ? 900 : 650;
+  crashResolveTimer = setTimeout(() => finishCrash(cause), delayMs);
 };
+
+const impactCauseForPlan = (plan: RoundPlan): CrashCause | null =>
+  plan.crashCause ?? (plan.landingZone === "cart" ? "cart" : null);
 
 const finishSafeLanding = (): void => {
   landingTimer = null;
@@ -390,8 +424,8 @@ export const startRound = async (): Promise<void> => {
     return;
   }
 
-  game.phase = "flight";
-  startedAt = performance.now();
+  game.phase = "preShot";
+  game.flightStartedAtMs = 0;
 
   const tick = (): void => {
     if (game.phase !== "flight" || !activePlan) {
@@ -400,16 +434,21 @@ export const startRound = async (): Promise<void> => {
     }
     const elapsed = (performance.now() - startedAt) / 1000;
 
+    const planSec =
+      activePlan.crashAtSec > 0 ? activePlan.crashAtSec : 5;
+    const duration = getFlightDurationSec(planSec);
+    const evtScale =
+      activePlan.crashAtSec > 0 ? duration / activePlan.crashAtSec : duration / 5;
+
     while (
       nextEventIdx < activePlan.decorativeEvents.length &&
-      activePlan.decorativeEvents[nextEventIdx]!.atSec <= elapsed
+      activePlan.decorativeEvents[nextEventIdx]!.atSec * evtScale <= elapsed
     ) {
       fireDecorative(activePlan.decorativeEvents[nextEventIdx]!);
       nextEventIdx += 1;
     }
 
-    const duration = Math.min(7, Math.max(5, activePlan.crashAtSec));
-    const primaryImpactAt = duration * 0.68;
+    const primaryImpactAt = duration * PRIMARY_IMPACT_PROGRESS;
     const progress = Math.min(1, elapsed / duration);
     const m =
       flightStartMultiplier + (game.crashAt - flightStartMultiplier) * progress;
@@ -429,10 +468,9 @@ export const startRound = async (): Promise<void> => {
         finishHoleInOne();
       } else if (
         activePlan.outcome === "crash" &&
-        activePlan.crashCause !== null &&
-        isZeroCrash(activePlan)
+        activePlan.landingZone === "water"
       ) {
-        beginCrashResolution(activePlan.crashCause);
+        beginWaterLandingResolution(activePlan.crashCause ?? "landed");
       } else if (
         activePlan.landingZone !== "water" &&
         activePlan.landingZone !== "hole"
@@ -445,7 +483,16 @@ export const startRound = async (): Promise<void> => {
     game.winningsMicro = Math.round(game.betMicro * m);
     raf = requestAnimationFrame(tick);
   };
-  raf = requestAnimationFrame(tick);
+  clearSwingWindup();
+  swingWindupTimer = setTimeout(() => {
+    swingWindupTimer = null;
+    if (game.phase !== "preShot" || !activePlan) return;
+    game.phase = "flight";
+    const t0 = performance.now();
+    game.flightStartedAtMs = t0;
+    startedAt = t0;
+    raf = requestAnimationFrame(tick);
+  }, SWING_WINDUP_MS);
 };
 
 export const cashOut = async (): Promise<void> => {
@@ -493,6 +540,7 @@ export const teardownRound = (): void => {
   walletReady = false;
   decorativeListeners.clear();
   crashListeners.clear();
+  waterSurfaceLossListeners.clear();
   landingListeners.clear();
   preShotFailListeners.clear();
   roundPlanListeners.clear();
