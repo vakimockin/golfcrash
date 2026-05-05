@@ -127,6 +127,11 @@ import {
 	buildObjectLayerSystem,
 	buildProceduralFrontTerrain,
 } from "./components/terrain/pixi-terrain-wrappers.js";
+import {
+	analyzeTerrainForHazards,
+	type HazardZone,
+} from "./components/terrain/terrain-builder.js";
+import { proceduralWaterForbiddenInterval } from "./components/gameplay/tee-water-interval.js";
 import { redrawMobSpawnSectorDebug, syncMobSectorDebugLabelLayer } from "./components/ambient/mob-sector-debug.js";
 import { getAmbientSpawnXSpan } from "./components/ambient/ambient-spawn-span.js";
 import {
@@ -193,6 +198,18 @@ export const bootstrapGame = (
 	const ambientMotions: AmbientMotion[] = [];
 	const effects: Effect[] = [];
 	let terrainLayer: TerrainLayers | null = null;
+	/**
+	 * Authoritative list of water/sand hazards as the terrain layer actually
+	 * rendered them — populated right after `buildProceduralFrontTerrain` from
+	 * the same `analyzeTerrainForHazards` call the builder uses internally.
+	 *
+	 * § Bug: `mapLayout.features` water list is built by a SEPARATE valley
+	 * scan (`findValleys` in `map.ts`) and frequently disagrees with what the
+	 * terrain renderer drew. Using `mapLayout.features` for water-touchdown
+	 * resolution caused water-loss rounds to land on dry fairway visually
+	 * (the splash played at the wrong spot). Resolve from these zones instead.
+	 */
+	let terrainHazardZones: HazardZone[] = [];
 	let backgroundRefs: LayeredBackgroundRefs | null = null;
 	let stageBackdrop: Sprite | null = null;
 	let activeVisualMode: VisualTimeMode | null = null;
@@ -212,21 +229,27 @@ export const bootstrapGame = (
 	const flightRevealedCells = new Set<string>();
 	let flightRevealMobCount = 0;
 	/** Hard cap — trajectory can visit many (sector × layer) cells; without this, flight looks crowded. */
-	const FLIGHT_REVEAL_MAX_MOBS = 10;
+	const FLIGHT_REVEAL_MAX_MOBS = 4;
 	let flightRevealMotionSerial = 0;
 	let lastPhase: typeof game.phase = "idle";
 	let displayScale = -1;
 	/** After `impactZoomCurrent`: <1 = camera pulls back in flight, >1 = push-in toward strike. */
 	let flightZoomCurrent = 1;
-	const FLIGHT_CAM_WIDE_MUL = 0.58;
-	const FLIGHT_CAM_TIGHT_MUL = 1.2;
-	const IMPACT_ZOOM_PEAK = 1.22;
+	const FLIGHT_CAM_WIDE_MUL = 0.82;
+	const FLIGHT_CAM_TIGHT_MUL = 1.05;
+	const IMPACT_ZOOM_PEAK = 1.08;
 	/** Impact punch ~1/s; dt-correct in `animate`. */
-	const IMPACT_ZOOM_SMOOTH_RATE = 16;
-	const IMPACT_ZOOM_HOLD_MS = 600;
+	const IMPACT_ZOOM_SMOOTH_RATE = 10;
+	const IMPACT_ZOOM_HOLD_MS = 450;
+	/** Tension pulse on top of impact punch: decaying sine, peak amplitude / oscillations / lifetime. */
+	const IMPACT_PULSE_AMPLITUDE = 0.035;
+	const IMPACT_PULSE_FREQ_HZ = 7;
+	const IMPACT_PULSE_DECAY_RATE = 4;
+	const IMPACT_PULSE_DURATION_MS = 900;
 	let impactZoomTarget = 1;
 	let impactZoomCurrent = 1;
 	let impactZoomResetAt = 0;
+	let impactPulseStartedAt = 0;
 	let crashedSettled = false;
 	/** Smoothed camera aim in flight (world px). */
 	let flightCamSmX = 0;
@@ -626,6 +649,37 @@ export const bootstrapGame = (
 		for (const feature of layout.features) renderMapFeature(feature);
 	};
 
+	/**
+	 * Find the rendered water zone whose X-span is closest to (or contains)
+	 * `alongX`, then clamp X into that span and return the water-surface Y
+	 * (`zone.topY`) — exactly the level the visual water sprite was drawn at.
+	 *
+	 * Falls back to the legacy `mapLayout.features` lookup if the terrain
+	 * analyzer somehow produced no water zones (e.g. extremely flat hill);
+	 * the legacy resolver returns `null` in that case too, which the caller
+	 * already handles.
+	 */
+	const resolveTerrainWaterTouchdown = (
+		alongX: number,
+	): { x: number; y: number } | null => {
+		const waters = terrainHazardZones.filter((z) => z.type === "water");
+		if (waters.length === 0) return resolveWaterTouchdown(mapLayout, alongX);
+		let chosen = waters[0]!;
+		let bestDist = Infinity;
+		for (const w of waters) {
+			const inside = alongX >= w.startX && alongX <= w.endX;
+			const dist = inside
+				? 0
+				: Math.min(Math.abs(alongX - w.startX), Math.abs(alongX - w.endX));
+			if (dist < bestDist) {
+				bestDist = dist;
+				chosen = w;
+			}
+		}
+		const x = Math.min(chosen.endX, Math.max(chosen.startX, alongX));
+		return { x, y: chosen.topY };
+	};
+
 	const isCurrentPlanZeroCrash = (): boolean =>
 		currentPlan?.landingZone === "water" ||
 		currentPlan?.crashCause === "landed" ||
@@ -649,11 +703,12 @@ export const bootstrapGame = (
 			const t0 =
 				game.flightStartedAtMs > 0 ? game.flightStartedAtMs : nowMs;
 			const elapsed = Math.max(0, (nowMs - t0) / 1000);
-			/** Linear in flight time — zoom feel stays in cam smoothing + lag, not in remapping t. */
 			const p = Math.min(1, duration > 1e-6 ? elapsed / duration : 0);
+			/** Ease-in cubic: zoom barely creeps for the first half, then accelerates as the ball nears the crash/landing — punches in tightest right at impact. */
+			const eased = p * p * p;
 			flightZoomGoal =
 				FLIGHT_CAM_WIDE_MUL +
-				(FLIGHT_CAM_TIGHT_MUL - FLIGHT_CAM_WIDE_MUL) * p;
+				(FLIGHT_CAM_TIGHT_MUL - FLIGHT_CAM_WIDE_MUL) * eased;
 		}
 		flightZoomCurrent += (flightZoomGoal - flightZoomCurrent) * zoomAlpha;
 
@@ -669,6 +724,26 @@ export const bootstrapGame = (
 				x: flightCamSmX + lead,
 				y: flightCamSmY - flown * 0.015,
 			};
+		}
+
+		// Tension pulse on top of the smoothed impact-zoom punch — a decaying
+		// sinusoid kicks in for `IMPACT_PULSE_DURATION_MS` after `triggerImpactZoom`.
+		// The amplitude decays exponentially so the camera "throbs" briefly
+		// at impact and then settles, instead of just snapping to the peak and
+		// holding flat.
+		let impactPulseMul = 1;
+		if (impactPulseStartedAt > 0) {
+			const pulseElapsed = (nowMs - impactPulseStartedAt) / 1000;
+			if (pulseElapsed >= 0 && pulseElapsed * 1000 <= IMPACT_PULSE_DURATION_MS) {
+				const decay = Math.exp(-IMPACT_PULSE_DECAY_RATE * pulseElapsed);
+				impactPulseMul =
+					1 +
+					IMPACT_PULSE_AMPLITUDE *
+						decay *
+						Math.sin(2 * Math.PI * IMPACT_PULSE_FREQ_HZ * pulseElapsed);
+			} else {
+				impactPulseStartedAt = 0;
+			}
 		}
 
 		const updated = updateCameraController({
@@ -695,7 +770,7 @@ export const bootstrapGame = (
 			characterSprite,
 			fireBallSprite,
 			displayScale,
-			impactZoomMul: impactZoomCurrent * flightZoomCurrent,
+			impactZoomMul: impactZoomCurrent * flightZoomCurrent * impactPulseMul,
 			devFitWholeWorld,
 			devExtraWorldPanY: devFitWholeWorld ? devWorldPanYPx : 0,
 		});
@@ -705,6 +780,7 @@ export const bootstrapGame = (
 	const triggerImpactZoom = (now: number): void => {
 		impactZoomTarget = IMPACT_ZOOM_PEAK;
 		impactZoomResetAt = now + IMPACT_ZOOM_HOLD_MS;
+		impactPulseStartedAt = now;
 	};
 
 	const trajectoryPoint = (
@@ -734,7 +810,7 @@ export const bootstrapGame = (
 			targetY = plannedCrashTarget.impactY;
 		}
 		if (outcome === "crash" && currentPlan?.landingZone === "water") {
-			const nearestWater = resolveWaterTouchdown(mapLayout, targetX);
+			const nearestWater = resolveTerrainWaterTouchdown(targetX);
 			if (nearestWater) {
 				targetX = nearestWater.x;
 				targetY = nearestWater.y;
@@ -1007,7 +1083,7 @@ export const bootstrapGame = (
 				hillSurfaceY,
 				hazardTrack,
 			);
-			const waterImp = resolveWaterTouchdown(mapLayout, baseImp.x);
+			const waterImp = resolveTerrainWaterTouchdown(baseImp.x);
 			if (waterImp) {
 				plannedCrashTarget = registerImplicitWaterCrashTarget(
 					waterImp,
@@ -1169,6 +1245,7 @@ export const bootstrapGame = (
 			flightCamSmX = currentTeeX;
 			flightCamSmY = currentTeeY;
 			impactZoomResetAt = 0;
+			impactPulseStartedAt = 0;
 			collision = null;
 			nearHoleCelebrated = false;
 			fireBallSprite.tint = 0xffffff;
@@ -1238,6 +1315,7 @@ export const bootstrapGame = (
 			impactZoomCurrent = 1;
 			flightZoomCurrent = 1;
 			impactZoomResetAt = 0;
+			impactPulseStartedAt = 0;
 			characterSprite?.state.setAnimation(0, "idle", true);
 		}
 		if (phase === "landed" && lastPhase !== "landed") {
@@ -1390,7 +1468,7 @@ export const bootstrapGame = (
 				if (!waterLoss) return fairwayContactY(worldX);
 				if (plannedCrashTarget)
 					return plannedCrashTarget.impactY + WATER_LOSS_SINK_PX;
-				const pond = resolveWaterTouchdown(mapLayout, worldX);
+				const pond = resolveTerrainWaterTouchdown(worldX);
 				if (pond) return pond.y + WATER_LOSS_SINK_PX;
 				return fairwayContactY(worldX) + WATER_LOSS_SINK_PX;
 			};
@@ -1529,15 +1607,6 @@ export const bootstrapGame = (
 			) ?? plannedHazards.find((hazard) => hazard.kind === event.kind);
 		if (!planned) return;
 		planned.highlightUntil = now + 700;
-		if (
-			event.kind === "bird" ||
-			event.kind === "helicopter" ||
-			event.kind === "plane" ||
-			event.kind === "wind" ||
-			event.kind === "cart"
-		) {
-			triggerImpactZoom(now);
-		}
 		const pos = {
 			x: planned.node.x,
 			y: planned.node.y + planned.impactOffsetY,
@@ -2374,6 +2443,14 @@ export const bootstrapGame = (
 			devFitWholeWorld,
 		);
 		terrainLayer = buildProceduralFrontTerrain(theme.terrainTint);
+		// Mirror the analyzer call inside the terrain builder so we have the
+		// SAME zones it rendered. Same `worldW`, same `hillSurfaceY`, same
+		// forbidden interval — output is deterministic and matches visuals.
+		terrainHazardZones = analyzeTerrainForHazards(
+			WORLD_W,
+			hillSurfaceY,
+			proceduralWaterForbiddenInterval(),
+		);
 		worldLayer.addChild(terrainLayer.root);
 
 		renderMapLayout(mapLayout);

@@ -70,16 +70,18 @@ export const computeScale = (
   // Tight FOV during flight: ~1.3× closer than zoomed-out, so the ball
   // dominates while still leaving room for camera-lag (ball escapes right).
   const visibleHeightZoomedIn = aspect > 1 ? 1700 : 2000;
-  // Crashed view: wider than zoomed-in, narrower than full zoom-out, so
-  // the impact moment reads with a touch of context.
-  const visibleHeightCrashed = aspect > 1 ? 2400 : 2800;
+  // Loss-tight FOV for crashed / lose: a hair tighter than flight-end so the
+  // camera does not "ease back out" after the ball is dead — the player just
+  // lost, the impact lingers under a held-in framing for tension.
+  const visibleHeightLossHold = aspect > 1 ? 1500 : 1800;
 
   const zoomedOut = canvasH / visibleHeightZoomedOut;
   const zoomedIn = canvasH / visibleHeightZoomedIn;
 
   if (phase === "flight") return zoomedIn;
-  if (phase === "crashed") return canvasH / visibleHeightCrashed;
-  // Idle / preShot / runToBall / landed (non-jackpot) / cashOut / lose:
+  if (phase === "crashed" || phase === "lose")
+    return canvasH / visibleHeightLossHold;
+  // Idle / preShot / runToBall / landed (non-jackpot) / cashOut:
   // start zoomed OUT, gradually punch in as the multiplier grows for the
   // (rare) case we want a tease before flight.
   return zoomedOut + t * (zoomedIn - zoomedOut);
@@ -159,43 +161,52 @@ export const updateCamera = ({
   const followJackpotLanded =
     phase === "landed" && isJackpot && fireBallSprite !== null;
   const followCrashed = phase === "crashed" && fireBallSprite !== null;
+  // `lose` follows the dead-ball position when we still have a sprite — keeps
+  // the held-tight loss framing (see `computeScale`) anchored at the impact
+  // instead of snapping back to the tee.
+  const followLose = phase === "lose" && fireBallSprite !== null;
   const followRest =
     phase === "idle" ||
     phase === "preShot" ||
     phase === "cashOut" ||
-    phase === "lose";
+    (phase === "lose" && fireBallSprite === null);
   const shouldFollow =
     followFlight ||
     followRun ||
     followLanded ||
     followJackpotLanded ||
     followCrashed ||
+    followLose ||
     followRest;
-  const ballFx = followFlight || followCrashed;
+  const ballFx = followFlight || followCrashed || followLose;
   const aim = followFlight && flightLookAt ? flightLookAt : null;
 
   const targetX = followFlight
     ? (aim?.x ?? fireBallSprite!.x)
     : followCrashed
       ? fireBallSprite!.x
-      : followJackpotLanded
+      : followLose
         ? fireBallSprite!.x
-        : followRun
-          ? characterSprite!.x
-          : followLanded || followRest
-            ? currentTeeX
-            : ballStartX;
+        : followJackpotLanded
+          ? fireBallSprite!.x
+          : followRun
+            ? characterSprite!.x
+            : followLanded || followRest
+              ? currentTeeX
+              : ballStartX;
   const targetY = followFlight
     ? (aim?.y ?? fireBallSprite!.y)
     : followCrashed
       ? fireBallSprite!.y
-      : followJackpotLanded
+      : followLose
         ? fireBallSprite!.y
-        : followRun
-          ? characterSprite!.y
-          : followLanded || followRest
-            ? currentTeeY
-            : ballStartY;
+        : followJackpotLanded
+          ? fireBallSprite!.y
+          : followRun
+            ? characterSprite!.y
+            : followLanded || followRest
+              ? currentTeeY
+              : ballStartY;
 
   const aspect = canvasW / canvasH;
   const idleFocusXValue = aspect > 1 ? idleFocusX : 0.5;
@@ -263,7 +274,7 @@ export const updateCamera = ({
    *     lose): snappy default → camera is glued to the player.
    */
   const isFlight = phase === "flight";
-  const isCrashed = phase === "crashed";
+  const isCrashed = phase === "crashed" || (phase === "lose" && followLose);
   const isJackpotLanded = phase === "landed" && isJackpot;
   const panRateX = isFlight
     ? CAMERA_PAN_RATE_FLIGHT_X

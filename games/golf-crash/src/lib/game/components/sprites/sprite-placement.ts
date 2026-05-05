@@ -17,7 +17,7 @@ export const effectiveAmbientPatrolVx = (
   vx +
   (amplitudeX * Math.cos(nowMs / PATROL_X_WOBBLE_MS + phase) * 1000) /
     PATROL_X_WOBBLE_MS;
-
+ 
 /** Movement vs mirror: set `invert` when PNG nose points left (+vx needs flip relative to baseline). */
 export const faceSpriteDirection = (
   sprite: Container,
