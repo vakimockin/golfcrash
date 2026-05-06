@@ -8,6 +8,7 @@ import json
 from .rng import Seed
 from .round import generate_stake_engine_state
 from .rtp import simulate, simulate_table
+from .verify_round import AUDIT_LOG_TEMPLATE, verify_round
 
 
 def main() -> None:
@@ -34,6 +35,18 @@ def main() -> None:
     state.add_argument("--server-seed", required=True)
     state.add_argument("--client-seed", required=True)
     state.add_argument("--nonce", type=int, required=True)
+
+    verify = sub.add_parser("verify-round", help="Recompute and verify round from seeds")
+    verify.add_argument("--server-seed", required=True)
+    verify.add_argument("--client-seed", required=True)
+    verify.add_argument("--nonce", type=int, required=True)
+    verify.add_argument(
+        "--expected-server-seed-hash",
+        required=False,
+        help="Optional commit hash to validate reveal integrity",
+    )
+
+    sub.add_parser("audit-log-template", help="Print canonical audit-log JSON template")
 
     args = parser.parse_args()
     if args.cmd == "simulate":
@@ -75,6 +88,16 @@ def main() -> None:
             nonce=args.nonce,
         )
         print(json.dumps(generate_stake_engine_state(seed), separators=(",", ":")))
+    elif args.cmd == "verify-round":
+        payload = verify_round(
+            server_seed=args.server_seed,
+            client_seed=args.client_seed,
+            nonce=args.nonce,
+            expected_server_seed_hash=args.expected_server_seed_hash,
+        )
+        print(json.dumps(payload, separators=(",", ":")))
+    elif args.cmd == "audit-log-template":
+        print(json.dumps(AUDIT_LOG_TEMPLATE, separators=(",", ":")))
 
 
 if __name__ == "__main__":

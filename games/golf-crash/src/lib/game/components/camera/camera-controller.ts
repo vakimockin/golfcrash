@@ -66,10 +66,10 @@ export const computeScale = (
   const aspect = canvasW / canvasH;
   // Wide field-of-view: visible vertical span when zoomed OUT (idle, run,
   // landed, …). The course reads as a big landscape; ball + flag both fit.
-  const visibleHeightZoomedOut = aspect > 1 ? 2200 : 2600;
+  const visibleHeightZoomedOut = aspect > 1 ? 1600 : 2300;
   // Tight FOV during flight: ~1.3× closer than zoomed-out, so the ball
   // dominates while still leaving room for camera-lag (ball escapes right).
-  const visibleHeightZoomedIn = aspect > 1 ? 1700 : 2000;
+  const visibleHeightZoomedIn = aspect > 1 ? 1200 : 1500;
   // Loss-tight FOV for crashed / lose: a hair tighter than flight-end so the
   // camera does not "ease back out" after the ball is dead — the player just
   // lost, the impact lingers under a held-in framing for tension.

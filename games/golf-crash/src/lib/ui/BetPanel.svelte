@@ -1,9 +1,43 @@
 <script lang="ts">
-  import { microToUnit, MICRO } from "@golf-crash/utils-shared";
+  import {
+    MAX_BET_MICRO,
+    MICRO,
+    MIN_BET_MICRO,
+    microToUnit,
+  } from "@golf-crash/utils-shared";
   import { game, adjustBet, setBet } from "$lib/stores/game.svelte";
   import { t } from "$lib/i18n";
 
   const PRESETS = [0.1, 0.2, 0.4, 0.8];
+  const MAX_BET_UNIT = MAX_BET_MICRO / MICRO;
+  const MIN_BET_UNIT = MIN_BET_MICRO / MICRO;
+
+  let editing = $state(false);
+  let draft = $state("");
+
+  const beginEdit = (): void => {
+    draft = microToUnit(game.betMicro).toFixed(2);
+    editing = true;
+  };
+
+  const commitEdit = (): void => {
+    const parsed = Number.parseFloat(draft.replace(",", "."));
+    if (Number.isFinite(parsed) && parsed > 0) {
+      const clamped = Math.min(MAX_BET_UNIT, Math.max(MIN_BET_UNIT, parsed));
+      setBet(Math.round(clamped * MICRO));
+    }
+    editing = false;
+  };
+
+  const onKeydown = (event: KeyboardEvent): void => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      (event.currentTarget as HTMLInputElement).blur();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      editing = false;
+    }
+  };
 </script>
 
 <div class="bet">
@@ -11,7 +45,18 @@
     <button class="step" onclick={() => adjustBet(-10)} aria-label={t(game.lang, "decreaseBet")}
       >−</button
     >
-    <div class="amount">{microToUnit(game.betMicro).toFixed(2)}</div>
+    <input
+      class="amount"
+      type="text"
+      inputmode="decimal"
+      maxlength="6"
+      aria-label="bet amount"
+      value={editing ? draft : microToUnit(game.betMicro).toFixed(2)}
+      oninput={(e) => (draft = (e.currentTarget as HTMLInputElement).value)}
+      onfocus={beginEdit}
+      onblur={commitEdit}
+      onkeydown={onKeydown}
+    />
     <button class="step" onclick={() => adjustBet(10)} aria-label={t(game.lang, "increaseBet")}
       >+</button
     >
@@ -61,10 +106,29 @@
 
   .amount {
     flex: 1;
+    width: 100%;
+    min-width: 0;
     text-align: center;
     font-size: 13px;
     font-weight: 600;
     color: #fff;
+    background: transparent;
+    border: none;
+    padding: 0;
+    font-family: inherit;
+    appearance: none;
+    -moz-appearance: textfield;
+  }
+
+  .amount:focus {
+    outline: none;
+    background: #0f1011;
+  }
+
+  .amount::-webkit-outer-spin-button,
+  .amount::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
   }
 
   .presets {

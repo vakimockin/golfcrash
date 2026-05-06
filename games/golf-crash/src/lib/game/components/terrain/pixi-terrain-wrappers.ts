@@ -8,6 +8,7 @@ import {
 } from "../background/background-builder.js";
 import {
   buildObjectLayerSystem as buildObjectLayerSystemComponent,
+  type AmbientPerfTier,
   type AmbientMobSpawn,
 } from "../ambient/ambient-builder.js";
 import { buildProceduralFrontTerrain as buildProceduralFrontTerrainComponent } from "./terrain-builder.js";
@@ -70,8 +71,15 @@ export const buildProceduralFrontTerrain = (tint = 0xffffff): TerrainLayers =>
 export const buildObjectLayerSystem = (
   mobileScale: number,
   layers: ObjectLayers,
+  opts: {
+    viewportW?: number;
+    perfTier?: AmbientPerfTier;
+    cartForbiddenIntervals?: ReadonlyArray<readonly [number, number]>;
+    cartMinX?: number;
+    cartMaxX?: number;
+  } = {},
 ): {
   container: Container;
   spawns: AmbientMobSpawn[];
 } =>
-  buildObjectLayerSystemComponent(mobileScale, layers, WORLD_W);
+  buildObjectLayerSystemComponent(mobileScale, layers, WORLD_W, opts);

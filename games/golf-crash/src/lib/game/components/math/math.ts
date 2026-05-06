@@ -136,7 +136,7 @@ export const timeForMultiplier = (mult: number): number => {
 
 const clampVisualCrashTime = (raw: number): number => {
   if (raw <= 0) return 1;
-  return Math.min(7.5, Math.max(1, raw));
+  return Math.min(8.5, Math.max(0.9, raw));
 };
 
 const pickPreShotFail = (u: number): PreShotFail | null => {

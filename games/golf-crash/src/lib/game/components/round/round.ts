@@ -11,6 +11,7 @@ import {
 import { verify } from "../../../services/provablyFair.js";
 import {
   generatePlan,
+  GROWTH_K,
   randomSeed,
   JACKPOT_MULT,
   type RoundPlan,
@@ -302,9 +303,20 @@ const impactCauseForPlan = (plan: RoundPlan): CrashCause | null =>
 
 const finishSafeLanding = (): void => {
   landingTimer = null;
+  // A landing pays only when the ball completed its flight naturally
+  // (crashCause === "landed") and didn't drop in water. A "crash" cause
+  // such as bird/wind/cart still routes here when the ball happens to fall
+  // on fairway/sand, but those count as a miss because the player never
+  // cashed out before the impact.
+  const plan = activePlan;
+  const isPayingLanding =
+    plan?.crashCause === "landed" && plan.landingZone !== "water";
+  const payout = isPayingLanding
+    ? Math.round(game.betMicro * game.multiplier)
+    : 0;
   game.phase = "landed";
+  game.winningsMicro = payout;
   game.multiplier = 1;
-  game.winningsMicro = 0;
   game.crashAt = 0;
   game.crashCause = null;
   game.preShotFail = null;
@@ -313,7 +325,7 @@ const finishSafeLanding = (): void => {
   nextEventIdx = 0;
   primaryImpactFired = false;
   flightStartMultiplier = 1;
-  void settleWin(0);
+  void settleWin(payout);
   void prerollNextRound();
 };
 
@@ -450,8 +462,13 @@ export const startRound = async (): Promise<void> => {
 
     const primaryImpactAt = duration * PRIMARY_IMPACT_PROGRESS;
     const progress = Math.min(1, elapsed / duration);
+    // Natural exponential growth (matches `multiplierAt` curve, GROWTH_K=1.6)
+    // re-parameterised so the multiplier reaches `crashAt` exactly at progress=1.
+    // The earlier linear ramp made the curve trivially predictable from a single
+    // sample — players could read the slope and infer the crash point.
+    const eased = Math.pow(progress, GROWTH_K);
     const m =
-      flightStartMultiplier + (game.crashAt - flightStartMultiplier) * progress;
+      flightStartMultiplier + (game.crashAt - flightStartMultiplier) * eased;
     if (
       !primaryImpactFired &&
       elapsed >= primaryImpactAt &&

@@ -20,6 +20,12 @@ export type AmbientMotion = {
   facing: 1 | -1;
   clampYMin: number;
   clampYMax: number;
+  /** Previous frame X — used to compute movement angle for rotation. */
+  prevX: number;
+  /** Previous frame Y — used to compute movement angle for rotation. */
+  prevY: number;
+  /** Smoothed rotation (radians) so sprites tilt toward their movement direction. */
+  currentRotation: number;
 };
 
 export type Flipbook = {

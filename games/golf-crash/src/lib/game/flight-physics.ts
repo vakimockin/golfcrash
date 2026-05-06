@@ -1,8 +1,11 @@
-/** Target on-screen flight duration (wall-clock) — 5–7 s, Aviator-style. */
-export const FLIGHT_DURATION_WALL_SEC_MIN = 5;
-export const FLIGHT_DURATION_WALL_SEC_MAX = 7;
+/** Wall-clock flight band. Wider than a fixed window so duration tracks the
+ *  natural crash time — small multipliers crash fast, big ones drag out — and
+ *  cannot be reverse-engineered from a constant flight length. */
+export const FLIGHT_DURATION_WALL_SEC_MIN = 1.8;
+export const FLIGHT_DURATION_WALL_SEC_MAX = 8.5;
 
-/** Wall-clock flight length; plan `crashAtSec` is clamped into this band. */
+/** Wall-clock flight length; plan `crashAtSec` passes through with mild bounds
+ *  so the multiplier-vs-time relationship varies round-to-round. */
 export const getFlightDurationSec = (crashAtSec: number): number => {
   if (!Number.isFinite(crashAtSec) || crashAtSec <= 0) {
     return FLIGHT_DURATION_WALL_SEC_MIN;

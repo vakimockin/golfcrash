@@ -13,6 +13,12 @@ from golf_crash_math.round import (
     generate_stake_engine_state,
 )
 from golf_crash_math.rtp import simulate, simulate_table
+from golf_crash_math.verify_round import (
+    AUDIT_LOG_TEMPLATE,
+    build_audit_log_entry,
+    cashout_wins,
+    verify_round,
+)
 
 
 def test_crash_from_uniform_house_edge_returns_one() -> None:
@@ -146,3 +152,59 @@ def test_bonus_and_near_miss_flags_present() -> None:
             break
     assert bonus_seen, "expected at least one bonus trigger in 2k rounds"
     assert near_miss_seen, "expected at least one near-miss in 2k rounds"
+
+
+def test_verify_round_is_deterministic_and_hash_checked() -> None:
+    payload_a = verify_round(
+        server_seed="srv-secret-1",
+        client_seed="client-a",
+        nonce=123,
+    )
+    payload_b = verify_round(
+        server_seed="srv-secret-1",
+        client_seed="client-a",
+        nonce=123,
+    )
+    assert payload_a["roundId"] == payload_b["roundId"]
+    assert payload_a["state"] == payload_b["state"]
+
+    ok = verify_round(
+        server_seed="srv-secret-2",
+        client_seed="client-a",
+        nonce=124,
+        expected_server_seed_hash=payload_a["serverSeedHash"],
+    )
+    # Different server seed must not match an unrelated commit hash.
+    assert ok["serverSeedHashMatches"] is False
+
+
+def test_cashout_boundary_rule_on_deterministic_round() -> None:
+    """Server-side settlement rule: cashout <= crash wins; above crash loses."""
+    result = generate_round(Seed("cashout-srv", "cashout-client", 777))
+    if result.outcome != "crash":
+        result = generate_round(Seed("cashout-srv", "cashout-client", 778))
+    assert result.outcome == "crash"
+    crash = result.crash_multiplier
+    assert crash >= 1.0
+
+    cashout_equal = crash
+    cashout_above = round(crash + 0.01, 2)
+    assert cashout_wins(crash_multiplier=crash, cashout_target=cashout_equal) is True
+    assert cashout_wins(crash_multiplier=crash, cashout_target=cashout_above) is False
+
+
+def test_audit_log_template_and_entry_shape() -> None:
+    assert "roundId" in AUDIT_LOG_TEMPLATE
+    assert "idempotencyKey" in AUDIT_LOG_TEMPLATE
+    round_result = generate_round(Seed("audit", "audit", 1))
+    entry = build_audit_log_entry(
+        result=round_result,
+        cashout_target=2.0,
+        cashout_request_ts_ms=1000,
+        server_decision_ts_ms=1001,
+        decision="cashout_loss",
+        idempotency_key="req-1",
+    )
+    assert entry["roundId"].startswith("round-")
+    assert entry["seed"]["nonce"] == 1
+    assert entry["idempotencyKey"] == "req-1"
